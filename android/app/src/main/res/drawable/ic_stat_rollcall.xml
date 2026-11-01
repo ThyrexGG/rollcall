@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Monochrome notification icon: ball outline, one seam, check mark -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="512" android:viewportHeight="512">
+    <path android:fillColor="#00000000" android:strokeColor="#FFFFFFFF" android:strokeWidth="34"
+        android:pathData="M256,104 A152,152 0 1,1 255.9,104 Z" />
+    <path android:fillColor="#00000000" android:strokeColor="#FFFFFFFF" android:strokeWidth="22" android:strokeLineCap="round"
+        android:pathData="M112,200 C176,178 228,186 268,214" />
+    <path android:fillColor="#00000000" android:strokeColor="#FFFFFFFF" android:strokeWidth="50" android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M156,258 L230,326 C272,252 318,190 380,146" />
+</vector>

@@ -1,0 +1,86 @@
+name: Android APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-apk
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      VERSION_CODE: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install
+        run: npm ci
+
+      - name: Turn on push if Firebase is configured
+        run: |
+          if [ -f android/app/google-services.json ]; then
+            echo "VITE_PUSH=1" >> "$GITHUB_ENV"
+            echo "Firebase config found: push enabled"
+          else
+            echo "No google-services.json: building without push"
+          fi
+
+      - name: Build web app
+        run: npm run build
+
+      - name: Sync into Android
+        run: npx cap sync android
+
+      - name: Signing key
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -n "$KS_B64" ] && [ -n "$KS_PASS" ]; then
+            echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/rollcall.jks"
+            echo "ANDROID_KEYSTORE_PASSWORD=$KS_PASS" >> "$GITHUB_ENV"
+            echo "Using the club signing key: updates install over the old app"
+          else
+            TMPPASS=$(openssl rand -hex 16)
+            keytool -genkeypair -keystore "$RUNNER_TEMP/rollcall.jks" -alias rollcall -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass "$TMPPASS" -keypass "$TMPPASS" -dname "CN=Rollcall temporary"
+            echo "::add-mask::$TMPPASS"
+            echo "ANDROID_KEYSTORE_PASSWORD=$TMPPASS" >> "$GITHUB_ENV"
+            echo "::warning::No signing secrets set. This APK uses a one-off key, so the next update needs an uninstall first."
+          fi
+          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/rollcall.jks" >> "$GITHUB_ENV"
+
+      - name: Build signed APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+          cp app/build/outputs/apk/release/app-release.apk ../Rollcall.apk
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-v1.0.${{ github.run_number }}
+          name: Rollcall for Android 1.0.${{ github.run_number }}
+          body: |
+            Install: download **Rollcall.apk** on your Android phone and open it.
+            Built from ${{ github.sha }}.
+          files: Rollcall.apk
+          make_latest: true

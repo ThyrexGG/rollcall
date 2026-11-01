@@ -467,3 +467,6 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
 .invite { background: var(--navy); color: var(--on-navy); border-radius: var(--r); padding: 14px; display: flex; flex-direction: column; gap: 12px; }
 .invite strong { color: var(--yellow); }
 .invite .btn:not(.primary) { background: transparent; color: var(--on-navy); border-color: var(--navy-line); }
+.logo-mark { display: inline-block; flex: none; border-radius: 22%; overflow: hidden; line-height: 0; }
+.logo-mark svg { display: block; }
+.signin-top .logo-mark { box-shadow: 0 0 0 2px rgba(245, 197, 24, .25); }

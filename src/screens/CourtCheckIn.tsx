@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { fmtDay } from '../lib/dates'
-import { Icon } from '../components/ui'
+import { Icon, Logo } from '../components/ui'
 import type { Status } from '../lib/types'
 
 interface Info {
@@ -117,7 +117,7 @@ export function CourtCheckIn({ code }: { code: string }) {
   return (
     <div className="checkin">
       <header className="checkin-head">
-        <span className="logo small" aria-hidden="true">R</span>
+        <Logo size={44} />
         <div>
           <p className="eyebrow accent">{info?.club_name ?? 'Rollcall'}</p>
           <h1>{info ? `${fmtDay(info.date)} · ${info.training_day ? 'Training' : 'Normal day'}` : 'Court check-in'}</h1>

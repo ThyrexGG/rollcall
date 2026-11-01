@@ -7,6 +7,7 @@ import { supabase } from '../lib/supabase'
 import { monthLabel, monthReport, monthsWithData } from '../lib/share'
 import { ShareSheet } from './Today'
 import { go } from '../router'
+import { disablePush, enablePush, isNative, pushAvailable, pushIsOn } from '../lib/push'
 
 export function History({ email }: { email: string }) {
   const st = useStore()
@@ -151,6 +152,8 @@ export function History({ email }: { email: string }) {
           </section>
         )}
 
+        <NotifyCard email={email} />
+
         {st.club.role === 'owner' && <CourtCard />}
 
         {st.club.role === 'owner' && <CoachesCard />}
@@ -169,6 +172,40 @@ export function History({ email }: { email: string }) {
         {reportOpen && <ShareSheet text={monthReport(st, month)} />}
       </Sheet>
     </div>
+  )
+}
+
+function NotifyCard({ email }: { email: string }) {
+  const st = useStore()
+  const [on, setOn] = useState(pushIsOn())
+  const [busy, setBusy] = useState(false)
+  void email
+  return (
+    <section className="card pad stack-12">
+      <h2 className="h-label">Check-in notifications</h2>
+      {!isNative && <p className="sub">Install the Rollcall Android app to get a notification each time a player scans in at the court.</p>}
+      {isNative && !pushAvailable && <p className="sub">Notifications aren’t switched on in this build yet. They arrive in the next app update.</p>}
+      {pushAvailable && (
+        <label className="toggle-row">
+          <span className="who-text">
+            <span className="name">Notify me when players check in</span>
+            <span className="sub">Including check-ins that need your OK.</span>
+          </span>
+          <input id="push-toggle" type="checkbox" role="switch" checked={on} disabled={busy} onChange={async (e) => {
+            setBusy(true)
+            try {
+              if (e.target.checked) {
+                const sessionUser = (await supabase.auth.getUser()).data.user
+                const ok = sessionUser ? await enablePush(sessionUser.id, st.club.owner) : false
+                setOn(ok)
+                st.notify(ok ? 'Notifications on' : 'Allow notifications for Rollcall in your phone settings')
+              } else { await disablePush(); setOn(false); st.notify('Notifications off') }
+            } catch { st.notify('Couldn’t turn on notifications. Try again.') }
+            setBusy(false)
+          }} />
+        </label>
+      )}
+    </section>
   )
 }
 

@@ -26,6 +26,24 @@ export const Icon = {
   ),
 }
 
+/** Rollcall mark: a volleyball whose seam turns into a check. */
+export function Logo({ size = 56, className = '' }: { size?: number; className?: string }) {
+  return (
+    <span className={`logo-mark ${className}`} style={{ width: size, height: size }} aria-hidden="true">
+      <svg viewBox="0 0 512 512" width={size} height={size}>
+        <rect width="512" height="512" rx="112" fill="#0E1E33" />
+        <clipPath id="rc-ball"><circle cx="256" cy="256" r="158" /></clipPath>
+        <circle cx="256" cy="256" r="158" fill="#F5C518" />
+        <g clipPath="url(#rc-ball)" fill="none" stroke="#0E1E33" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M90 194c70-26 132-18 180 16" strokeWidth="15" />
+          <path d="M226 326c-16 32-22 68-18 108" strokeWidth="15" />
+          <path d="M150 256l78 72c50-84 104-152 190-204" strokeWidth="44" />
+        </g>
+      </svg>
+    </span>
+  )
+}
+
 export function Jersey({ p, size = 36 }: { p: Pick<Player, 'number' | 'name'>; size?: number }) {
   const label = p.number || p.name.charAt(0).toUpperCase()
   return <span className="jersey" style={{ width: size, height: size, fontSize: size * 0.42 }} aria-hidden="true">{label}</span>

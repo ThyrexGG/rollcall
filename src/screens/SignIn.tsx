@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { Icon } from '../components/ui'
+import { Icon, Logo } from '../components/ui'
 
 type Mode = 'in' | 'up' | 'forgot'
 
@@ -43,7 +43,7 @@ export function SignIn() {
     <div className="signin">
       <span className="signin-ball" aria-hidden="true"><Icon.ball size={420} /></span>
       <div className="signin-top">
-        <span className="logo" aria-hidden="true">R</span>
+        <Logo size={60} />
         <h1>Rollcall</h1>
         <p>{mode === 'forgot' ? 'Enter your email and we’ll send a link to set a new password.' : 'Take attendance in seconds and see who keeps showing up.'}</p>
       </div>
@@ -83,7 +83,7 @@ export function NewPassword({ done }: { done: () => void }) {
   return (
     <div className="signin">
       <div className="signin-top">
-        <span className="logo" aria-hidden="true">R</span>
+        <Logo size={60} />
         <h1>New password</h1>
         <p>Choose a new password for your Rollcall account.</p>
       </div>

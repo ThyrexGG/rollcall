@@ -4,13 +4,15 @@ import { supabase } from './lib/supabase'
 import { StoreProvider, useStore } from './lib/store'
 import { currentTrainingDay } from './lib/dates'
 import { go, useRoute } from './router'
-import { Icon, Toast } from './components/ui'
+import { Icon, Toast, Logo } from './components/ui'
 import { SignIn, NewPassword } from './screens/SignIn'
 import { Today } from './screens/Today'
 import { Squad } from './screens/Squad'
 import { Player } from './screens/Player'
 import { History } from './screens/History'
 import { CourtCheckIn } from './screens/CourtCheckIn'
+import { setupPushListeners, isNative } from './lib/push'
+import { App as NativeApp } from '@capacitor/app'
 import { Poster } from './screens/Poster'
 
 export default function App() {
@@ -41,7 +43,7 @@ export default function App() {
 }
 
 function Splash() {
-  return <div className="splash" aria-label="Loading"><span className="logo">R</span></div>
+  return <div className="splash" aria-label="Loading"><Logo size={72} /></div>
 }
 
 function Shell({ email }: { email: string }) {
@@ -51,6 +53,13 @@ function Shell({ email }: { email: string }) {
   const date = picked ?? currentTrainingDay(st.trainingDays)
 
   useEffect(() => { if (route.tab === 'today' && route.date) setDate(route.date) }, [route])
+
+  useEffect(() => {
+    setupPushListeners((d) => { if (d) setDate(d); go('today') }, (title) => { st.notify(title); st.reload() })
+    if (!isNative) return
+    const h = NativeApp.addListener('backButton', ({ canGoBack }) => { if (canGoBack && location.hash && location.hash !== '#today') history.back(); else NativeApp.minimizeApp() })
+    return () => { h.then((x) => x.remove()) }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (st.loading) return <Splash />
   if (route.tab === 'poster') return <><Poster /><Toast msg={st.toast} /></>

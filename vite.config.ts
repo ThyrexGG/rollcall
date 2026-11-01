@@ -7,6 +7,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      injectRegister: null, // registered in main.tsx, and only on the web (not inside the Android app)
       includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
       manifest: {
         name: 'Rollcall',
