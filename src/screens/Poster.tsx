@@ -10,7 +10,12 @@ export function courtUrl(code: string) {
   return `${base}/#court-${code}`
 }
 
-/** A4 poster for the court wall. Sized in container units so it previews at any width and prints at exactly 210 × 297 mm. */
+/**
+ * A4 court poster. Concept: the poster is the court seen from above. The opponent half bleeds off the top,
+ * the net crosses the middle, the three steps stand in the front row (positions 4-3-2), and the QR code is
+ * taped to the floor in the back court like a player's spot marker. Sized in container units so it previews
+ * at any width and prints at exactly 210 × 297 mm.
+ */
 export function Poster() {
   const st = useStore()
   const c = st.court
@@ -22,7 +27,7 @@ export function Poster() {
     QRCode.toString(url, { type: 'svg', margin: 0, errorCorrectionLevel: 'H', color: { dark: '#0E1E33', light: '#FFFFFF' } }).then(setSvg)
   }, [url])
 
-  const days = st.trainingDays.map((d) => DAY_SHORT[d].toUpperCase()).join(' & ') || 'ANY DAY'
+  const days = st.trainingDays.map((d) => DAY_SHORT[d].toUpperCase())
 
   return (
     <div className="poster-page">
@@ -34,47 +39,48 @@ export function Poster() {
       {!c.code ? (
         <p className="hint center-text">Make a court QR code in History first.</p>
       ) : (
-        <article className="poster" aria-label="Check-in poster">
-          <svg className="poster-court" viewBox="0 0 210 297" aria-hidden="true" preserveAspectRatio="none">
-            <g fill="none" stroke="#1A3253" strokeWidth="0.8">
-              <rect x="9" y="9" width="192" height="279" rx="2" />
-            </g>
-          </svg>
-          <svg className="poster-ball" viewBox="0 0 100 100" aria-hidden="true">
-            <g fill="none" stroke="#1C3354" strokeWidth="2.4" strokeLinecap="round">
-              <circle cx="50" cy="50" r="46" />
-              <path d="M50 4c-10 18-10 46 6 70M8 34c22-4 46 4 62 26M30 92c4-22 22-40 50-48" />
-            </g>
-          </svg>
+        <article className="pc" aria-label="Court check-in poster">
+          <span className="pc-side left">{st.clubName}</span>
+          <span className="pc-side right">Rollcall · attendance</span>
 
-          <header className="poster-top">
-            <span className="poster-brand"><span className="poster-logo">R</span>ROLLCALL</span>
-            <span className="poster-club">{st.clubName}</span>
-          </header>
+          <div className="pc-court">
+            <div className="pc-opp">
+              <p className="pc-kicker">Training check-in</p>
+              <h1 className="pc-title">Here for<br />training?</h1>
+            </div>
 
-          <h1 className="poster-title">SCAN<br />IN<span>.</span></h1>
-          <p className="poster-sub">Training attendance. Takes five seconds.</p>
+            <div className="pc-net" aria-hidden="true">
+              <span className="pc-post l" /><span className="pc-post r" />
+              <span className="pc-mesh" />
+              <span className="pc-tape" />
+            </div>
 
-          <div className="poster-qr-wrap">
-            <span className="vf tl" /><span className="vf tr" /><span className="vf bl" /><span className="vf br" />
-            <div className="poster-qr">
-              <div className="poster-qr-code" dangerouslySetInnerHTML={{ __html: svg }} />
-              <span className="poster-qr-badge" aria-hidden="true">R</span>
+            <ol className="pc-front" aria-label="How to check in">
+              <li><span className="pc-pos">1</span><b>Scan</b><small>with your camera</small></li>
+              <li><span className="pc-pos">2</span><b>Tap</b><small>your name</small></li>
+              <li><span className="pc-pos">3</span><b>Allow</b><small>your location</small></li>
+            </ol>
+            <span className="pc-attack" aria-hidden="true" />
+
+            <div className="pc-spot">
+              <div className="pc-marker">
+                <span className="pc-tape-strip a" aria-hidden="true" />
+                <span className="pc-tape-strip b" aria-hidden="true" />
+                <div className="pc-qr" dangerouslySetInnerHTML={{ __html: svg }} />
+                <span className="pc-ball" aria-hidden="true">
+                  <svg viewBox="0 0 100 100"><g fill="none" stroke="#0E1E33" strokeWidth="7" strokeLinecap="round"><circle cx="50" cy="50" r="43" /><path d="M50 7c-10 18-10 44 6 66M10 35c21-4 43 4 58 25M31 91c4-21 21-38 47-46" /></g></svg>
+                </span>
+              </div>
+              <p className="pc-spot-label">Take your spot. <span>Scan in.</span></p>
             </div>
           </div>
 
-          <ol className="poster-steps">
-            <li><span className="n">1</span><span><b>Scan</b> with your camera</span></li>
-            <li><span className="n">2</span><span><b>Tap</b> your name</span></li>
-            <li><span className="n">3</span><span><b>Allow</b> location</span></li>
-          </ol>
-
-          <footer className="poster-bar">
-            <div><small>Training</small><b>{days}</b></div>
-            <div><small>Check-in open</small><b>{c.start}–{c.end}</b></div>
-            <div><small>Late after</small><b>{c.late ?? 'No limit'}</b></div>
-          </footer>
-          <p className="poster-fine">Works only at the court · One phone, one player</p>
+          <div className="pc-board">
+            <div><small>Training</small><b>{days.join(' · ') || 'Any day'}</b></div>
+            <div><small>Check-in</small><b>{c.start}<i>–</i>{c.end}</b></div>
+            <div><small>Late after</small><b className="hot">{c.late ?? '—'}</b></div>
+          </div>
+          <p className="pc-fine">Works only on court · one phone, one player</p>
         </article>
       )}
     </div>
