@@ -23,15 +23,15 @@ export async function enablePush(userId: string, clubOwner: string): Promise<boo
   if (perm.receive !== 'granted') perm = await PushNotifications.requestPermissions()
   if (perm.receive !== 'granted') return false
   const token = await new Promise<string>((resolve, reject) => {
-    const t = window.setTimeout(() => reject(new Error('timeout')), 15000)
+    const t = window.setTimeout(() => reject(new Error('no reply from Google after 20s (check the API key restrictions and that Google Play services is up to date)')), 20000)
     PushNotifications.addListener('registration', (r) => { window.clearTimeout(t); resolve(r.value) })
-    PushNotifications.addListener('registrationError', (e) => { window.clearTimeout(t); reject(new Error(e.error)) })
+    PushNotifications.addListener('registrationError', (e) => { window.clearTimeout(t); reject(new Error(`Google said: ${e.error}`)) })
     PushNotifications.register()
   })
   const { error } = await supabase.from('push_tokens').upsert(
     { token, user_id: userId, club_owner: clubOwner, platform: 'android', enabled: true, updated_at: new Date().toISOString() },
     { onConflict: 'token' })
-  if (error) throw error
+  if (error) throw new Error(`saving failed: ${error.message}`)
   try { localStorage.setItem('rollcall-push-token', token) } catch { /* ignore */ }
   return true
 }

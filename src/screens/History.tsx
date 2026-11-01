@@ -200,7 +200,7 @@ function NotifyCard({ email }: { email: string }) {
                 setOn(ok)
                 st.notify(ok ? 'Notifications on' : 'Allow notifications for Rollcall in your phone settings')
               } else { await disablePush(); setOn(false); st.notify('Notifications off') }
-            } catch { st.notify('Couldn’t turn on notifications. Try again.') }
+            } catch (err) { st.notify(`Couldn’t turn on notifications: ${(err as Error)?.message ?? err}`) }
             setBusy(false)
           }} />
         </label>
