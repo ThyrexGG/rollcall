@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { supabase } from './supabase'
-import type { Mark, Player, Session, Stats, Status } from './types'
+import { DEFAULT_TRAINING_DAYS, type Mark, type Player, type Session, type Stats, type Status } from './types'
+import { weekday } from './dates'
 
 type Marks = Record<string, Record<string, Mark>> // sessionId -> playerId -> mark
 
@@ -11,6 +12,10 @@ interface Store {
   activePlayers: Player[]
   sessions: Session[] // sorted ascending by date
   marks: Marks
+  trainingDays: number[]
+  setTrainingDays: (days: number[]) => Promise<void>
+  isRequired: (date: string) => boolean
+  setRequired: (date: string, required: boolean) => Promise<void>
   sessionFor: (date: string) => Session | undefined
   dayMarks: (date: string) => Record<string, Mark>
   statsFor: (playerId: string) => Stats
@@ -49,6 +54,9 @@ export function StoreProvider({ userId, children }: { userId: string; children: 
   const [players, setPlayers] = useState<Player[]>([])
   const [sessions, setSessions] = useState<Session[]>([])
   const [marks, setMarks] = useState<Marks>({})
+  const [trainingDays, setDays] = useState<number[]>(DEFAULT_TRAINING_DAYS)
+  const daysRef = useRef<number[]>(DEFAULT_TRAINING_DAYS)
+  daysRef.current = trainingDays
   const [toast, setToast] = useState<string | null>(null)
   const toastTimer = useRef<number | undefined>(undefined)
   const pending = useRef<Record<string, Promise<Session>>>({})
@@ -70,12 +78,14 @@ export function StoreProvider({ userId, children }: { userId: string; children: 
 
   const reload = useCallback(async () => {
     setError(null)
-    const [p, s, a] = await Promise.all([
+    const [p, s, a, cfg] = await Promise.all([
       supabase.from('players').select('id,name,number,position,active,created_at'),
-      supabase.from('sessions').select('id,date,kind').order('date'),
+      supabase.from('sessions').select('id,date,kind,required').order('date'),
       supabase.from('attendance').select('session_id,player_id,status,note'),
+      supabase.from('settings').select('training_days').maybeSingle(),
     ])
     const err = p.error || s.error || a.error
+    if (!cfg.error && cfg.data) setDays((cfg.data as { training_days: number[] }).training_days)
     if (err) {
       setError('Could not load your squad. Check your connection, then pull to refresh.')
       setLoading(false)
@@ -112,8 +122,8 @@ export function StoreProvider({ userId, children }: { userId: string; children: 
     const p = (async () => {
       const { data, error } = await supabase
         .from('sessions')
-        .upsert({ date, owner: userId }, { onConflict: 'owner,date' })
-        .select('id,date,kind')
+        .upsert({ date, owner: userId, required: daysRef.current.includes(weekday(date)) }, { onConflict: 'owner,date' })
+        .select('id,date,kind,required')
         .single()
       if (error) throw error
       const s = data as Session
@@ -214,6 +224,29 @@ export function StoreProvider({ userId, children }: { userId: string; children: 
     } catch (e) { fail('Session type', e); reload() }
   }, [ensureSession, fail, reload])
 
+  const isRequired = useCallback((date: string) => {
+    const s = sessions.find((x) => x.date === date)
+    return s ? s.required : trainingDays.includes(weekday(date))
+  }, [sessions, trainingDays])
+
+  const setRequired = useCallback(async (date: string, required: boolean) => {
+    try {
+      const s = await ensureSession(date)
+      setSessions((prev) => prev.map((x) => (x.id === s.id ? { ...x, required } : x)))
+      const { error } = await supabase.from('sessions').update({ required }).eq('id', s.id)
+      if (error) throw error
+      notify(required ? 'This session now counts' : 'Marked as optional')
+    } catch (e) { fail('That change', e); reload() }
+  }, [ensureSession, notify, fail, reload])
+
+  const setTrainingDays = useCallback(async (days: number[]) => {
+    const before = daysRef.current
+    const sorted = [...days].sort()
+    setDays(sorted)
+    const { error } = await supabase.from('settings').upsert({ owner: userId, training_days: sorted, updated_at: new Date().toISOString() }, { onConflict: 'owner' })
+    if (error) { setDays(before); fail('Training days', error) }
+  }, [userId, fail])
+
   const deleteSession = useCallback(async (date: string) => {
     const s = sessionsRef.current.find((x) => x.date === date)
     if (!s) return
@@ -256,11 +289,16 @@ export function StoreProvider({ userId, children }: { userId: string; children: 
 
   const statsCache = useMemo(() => {
     const out: Record<string, Stats> = {}
-    for (const p of players) out[p.id] = { P: 0, L: 0, E: 0, A: 0, counted: 0, pct: null }
+    for (const p of players) out[p.id] = { P: 0, L: 0, E: 0, A: 0, counted: 0, pct: null, extra: 0 }
+    const req: Record<string, boolean> = {}
+    for (const s of sessions) req[s.id] = s.required
     for (const sid of Object.keys(marks)) {
+      const required = sid.startsWith('pending:') ? trainingDays.includes(weekday(sid.slice(8))) : req[sid] ?? true
       for (const [pid, m] of Object.entries(marks[sid])) {
         const s = out[pid]
-        if (s) s[m.status]++
+        if (!s) continue
+        if (required) s[m.status]++
+        else if (m.status === 'P' || m.status === 'L') s.extra++
       }
     }
     for (const s of Object.values(out)) {
@@ -268,10 +306,10 @@ export function StoreProvider({ userId, children }: { userId: string; children: 
       s.pct = s.counted ? Math.round(((s.P + s.L) / s.counted) * 100) : null
     }
     return out
-  }, [players, marks])
+  }, [players, marks, sessions, trainingDays])
 
   const statsFor = useCallback(
-    (id: string) => statsCache[id] ?? { P: 0, L: 0, E: 0, A: 0, counted: 0, pct: null },
+    (id: string) => statsCache[id] ?? { P: 0, L: 0, E: 0, A: 0, counted: 0, pct: null, extra: 0 },
     [statsCache],
   )
 
@@ -279,6 +317,7 @@ export function StoreProvider({ userId, children }: { userId: string; children: 
     loading, error, players,
     activePlayers: players.filter((p) => p.active),
     sessions, marks, sessionFor, dayMarks, statsFor,
+    trainingDays, setTrainingDays, isRequired, setRequired,
     setMark, setNote, markRest, setKind, deleteSession,
     addPlayers, updatePlayer, deletePlayer, reload, toast, notify,
   }

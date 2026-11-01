@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../lib/store'
-import { FOLLOW_UP, POSITIONS, WATCH, level } from '../lib/types'
+import { DAY_LONG, FOLLOW_UP, POSITIONS, WATCH, level } from '../lib/types'
 import { Icon, Jersey, Sheet } from '../components/ui'
 import { go } from '../router'
 
@@ -35,7 +35,7 @@ export function Squad({ openAdd }: { openAdd: boolean }) {
         </div>
         <div className="tiles">
           <div className="tile dark"><span className="tile-n">{avg === null ? '–' : `${avg}%`}</span><span className="tile-l">Squad average</span></div>
-          <div className="tile"><span className="tile-n">{st.sessions.length}</span><span className="tile-l">Sessions</span></div>
+          <div className="tile"><span className="tile-n">{st.sessions.filter((s) => s.required && Object.keys(st.marks[s.id] || {}).length).length}</span><span className="tile-l">Training sessions</span></div>
           <div className="tile"><span className={`tile-n${followUp ? ' danger' : ''}`}>{followUp}</span><span className="tile-l">Need follow-up</span></div>
         </div>
         {active.length > 1 && (
@@ -66,7 +66,7 @@ export function Squad({ openAdd }: { openAdd: boolean }) {
                       <Jersey p={p} />
                       <span className="who-text">
                         <span className="name">{p.name}</span>
-                        <span className="sub">{p.position ? `${p.position} · ` : ''}{s.P} P · {s.L} L · {s.E} E · {s.A} A</span>
+                        <span className="sub">{p.position ? `${p.position} · ` : ''}{s.P} P · {s.L} L · {s.E} E · {s.A} A{s.extra ? ` · +${s.extra} optional` : ''}</span>
                       </span>
                       <span className={`pct lv-${lv}`}>{s.pct === null ? 'New' : `${s.pct}%`}</span>
                     </span>
@@ -78,7 +78,7 @@ export function Squad({ openAdd }: { openAdd: boolean }) {
           </ul>
         )}
         {active.length > 0 && (
-          <p className="hint">Attendance = (present + late) ÷ (present + late + absent). Excused never counts against a player. Under {FOLLOW_UP}% needs follow-up, {FOLLOW_UP}–{WATCH - 1}% is one to watch.</p>
+          <p className="hint">Only {st.trainingDays.map((d) => DAY_LONG[d]).join(' and ')} training counts. Attendance = (present + late) ÷ (present + late + absent). Excused never counts against a player, and optional sessions are shown as a bonus. Under {FOLLOW_UP}% needs follow-up, {FOLLOW_UP}–{WATCH - 1}% is one to watch.</p>
         )}
         {archived.length > 0 && (
           <div className="stack-8">

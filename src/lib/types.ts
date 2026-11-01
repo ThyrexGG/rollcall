@@ -19,7 +19,12 @@ export interface Session {
   id: string
   date: string // YYYY-MM-DD
   kind: string
+  required: boolean // counts toward attendance %
 }
+
+export const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+export const DAY_LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+export const DEFAULT_TRAINING_DAYS = [2, 5] // Tuesday, Friday
 
 export interface Mark {
   status: Status
@@ -33,6 +38,8 @@ export interface Stats {
   A: number
   counted: number
   pct: number | null
+  /** optional sessions attended (present or late), never part of pct */
+  extra: number
 }
 
 /** Attendance % = (present + late) / (present + late + absent). Excused never counts against. */

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useStore } from '../lib/store'
-import { addDays, fmtDay, today } from '../lib/dates'
-import { SESSION_KINDS, STATUSES, STATUS_LABEL, type Player, type Status } from '../lib/types'
+import { currentTrainingDay, fmtDay, stepTrainingDay, today, weekday } from '../lib/dates'
+import { DAY_LONG, SESSION_KINDS, STATUSES, STATUS_LABEL, type Player, type Status } from '../lib/types'
 import { ConfirmButton, Icon, Jersey, Sheet } from '../components/ui'
 import { go } from '../router'
 
@@ -15,24 +15,28 @@ export function Today({ date, setDate }: { date: string; setDate: (d: string) =>
   const total = roster.length
   const marked = n.P + n.L + n.E + n.A
   const isToday = date === today()
+  const required = st.isRequired(date)
+  const days = st.trainingDays
+  const todayIsTraining = days.includes(weekday(today()))
+  const homeDay = currentTrainingDay(days)
   const [focus, setFocus] = useState<Player | null>(null)
   const [kindOpen, setKindOpen] = useState(false)
 
   return (
     <div className="screen">
-      <header className="hero">
+      <header className={`hero${required ? '' : ' optional'}`}>
         <div className="hero-nav">
-          <button className="icon-btn" type="button" aria-label="Previous day" onClick={() => setDate(addDays(date, -1))}><Icon.back /></button>
+          <button className="icon-btn" type="button" aria-label="Previous training day" onClick={() => setDate(stepTrainingDay(date, days, -1))}><Icon.back /></button>
           <div className="hero-date">
             <button type="button" className="kind-chip" onClick={() => setKindOpen(true)}>
-              {session?.kind ?? 'Training'}{isToday ? ' · Today' : ''}
+              {session?.kind ?? 'Training'} · {required ? 'Counts' : 'Optional'}{isToday ? ' · Today' : ''}
             </button>
             <label className="date-pick">
               <span className="date-big">{fmtDay(date)}</span>
               <input type="date" value={date} aria-label="Pick a date" onChange={(e) => e.target.value && setDate(e.target.value)} />
             </label>
           </div>
-          <button className="icon-btn" type="button" aria-label="Next day" onClick={() => setDate(addDays(date, 1))}><Icon.next /></button>
+          <button className="icon-btn" type="button" aria-label="Next training day" onClick={() => setDate(stepTrainingDay(date, days, 1))}><Icon.next /></button>
         </div>
 
         <div className="turnout">
@@ -52,7 +56,19 @@ export function Today({ date, setDate }: { date: string; setDate: (d: string) =>
         <div className="legend">
           {STATUSES.map((k) => <span key={k}><i className={`s-${k}`} />{n[k]} {STATUS_LABEL[k].toLowerCase()}</span>)}
         </div>
-        {!isToday && <button type="button" className="link on-dark" onClick={() => setDate(today())}>Jump to today</button>}
+        {!required && (
+          <p className="optional-note">Optional session. It’s recorded, but it doesn’t change anyone’s attendance %.</p>
+        )}
+        <div className="hero-links">
+          {date !== homeDay && (
+            <button type="button" className="link on-dark" onClick={() => setDate(homeDay)}>
+              {todayIsTraining ? 'Back to today' : `Back to ${DAY_LONG[weekday(homeDay)]}’s training`}
+            </button>
+          )}
+          {!todayIsTraining && !isToday && (
+            <button type="button" className="link on-dark" onClick={() => setDate(today())}>Record an optional session today</button>
+          )}
+        </div>
       </header>
 
       <main className="body">
@@ -117,6 +133,13 @@ export function Today({ date, setDate }: { date: string; setDate: (d: string) =>
       </Sheet>
 
       <Sheet open={kindOpen} onClose={() => setKindOpen(false)} title="Session type">
+        <label className="toggle-row">
+          <span className="who-text">
+            <span className="name">Counts toward attendance</span>
+            <span className="sub">On by default for {days.map((d) => DAY_LONG[d]).join(' and ') || 'no days'}. Turn off for an extra or cancelled session.</span>
+          </span>
+          <input id="required-toggle" type="checkbox" role="switch" checked={required} onChange={(e) => st.setRequired(date, e.target.checked)} />
+        </label>
         <div className="choice-grid">
           {SESSION_KINDS.map((k) => (
             <button

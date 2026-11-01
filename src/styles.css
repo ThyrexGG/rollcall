@@ -139,7 +139,23 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
 .hero .stackbar .s-L, .hero .legend .s-L { --c: #F5C518; }
 .hero .stackbar .s-E, .hero .legend .s-E { --c: #7C9CF5; }
 .hero .stackbar .s-A, .hero .legend .s-A { --c: #F06A5F; }
-.hero .link { align-self: center; padding: 0; }
+.hero .link { padding: 0; }
+.hero-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 18px; }
+.hero-links:empty { display: none; }
+.hero.optional { background: #2A3446; }
+.hero.optional .kind-chip { color: #C8D4E4; }
+.optional-note { font-size: 13px; color: var(--on-navy-2); background: rgba(255,255,255,.07); border-radius: 10px; padding: 8px 12px; text-align: center; }
+.toggle-row { display: flex; align-items: center; gap: 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; cursor: pointer; }
+.toggle-row input { appearance: none; flex: none; width: 52px; height: 32px; border-radius: 16px; background: var(--track); position: relative; cursor: pointer; margin: 0; }
+.toggle-row input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 26px; height: 26px; border-radius: 50%; background: #FFFFFF; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+.toggle-row input:checked { background: var(--p); }
+.toggle-row input:checked::after { left: 23px; }
+@media (prefers-reduced-motion: no-preference) { .toggle-row input::after { transition: left .15s; } }
+.tag { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 6px; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; background: var(--track); color: var(--muted); }
+.bonus { font-size: 13.5px; color: var(--p-ink); background: var(--p-tint); border-radius: 12px; padding: 10px 14px; }
+.days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.day { min-height: 44px; min-width: 0; padding: 0; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); font-size: 13px; font-weight: 700; color: var(--muted); }
+.day.on { background: var(--navy); border-color: var(--navy); color: var(--yellow); }
 
 /* page head (light) */
 .page-head { padding: calc(env(safe-area-inset-top, 0px) + 20px) max(20px, env(safe-area-inset-right, 0px)) 4px max(20px, env(safe-area-inset-left, 0px)); display: flex; flex-direction: column; gap: 14px; }

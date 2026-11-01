@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { Session as AuthSession } from '@supabase/supabase-js'
 import { supabase } from './lib/supabase'
 import { StoreProvider, useStore } from './lib/store'
-import { today } from './lib/dates'
+import { currentTrainingDay } from './lib/dates'
 import { go, useRoute } from './router'
 import { Icon, Toast } from './components/ui'
 import { SignIn } from './screens/SignIn'
@@ -36,7 +36,8 @@ function Splash() {
 function Shell({ email }: { email: string }) {
   const st = useStore()
   const route = useRoute()
-  const [date, setDate] = useState(today())
+  const [picked, setDate] = useState<string | null>(null)
+  const date = picked ?? currentTrainingDay(st.trainingDays)
 
   useEffect(() => { if (route.tab === 'today' && route.date) setDate(route.date) }, [route])
 

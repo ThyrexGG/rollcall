@@ -1,6 +1,6 @@
 import { useStore } from '../lib/store'
 import { fmtDay, fmtMonth, fmtShort, today } from '../lib/dates'
-import { STATUSES, type Status } from '../lib/types'
+import { DAY_LONG, DAY_SHORT, STATUSES, type Status } from '../lib/types'
 import { Icon } from '../components/ui'
 import { supabase } from '../lib/supabase'
 import { go } from '../router'
@@ -16,7 +16,7 @@ export function History({ email }: { email: string }) {
     return c
   }
 
-  const trend = done.slice(-10).map((s) => { const c = counts(s.id); return { s, came: c.P + c.L, size: c.P + c.L + c.E + c.A } })
+  const trend = done.filter((s) => s.required).slice(-10).map((s) => { const c = counts(s.id); return { s, came: c.P + c.L, size: c.P + c.L + c.E + c.A } })
   const maxSize = Math.max(total, ...trend.map((t) => t.size), 1)
   const avg = trend.length ? (trend.reduce((a, t) => a + t.came, 0) / trend.length).toFixed(1) : null
 
@@ -30,10 +30,10 @@ export function History({ email }: { email: string }) {
 
   function exportCsv() {
     const q = (x: string | number) => { const v = String(x); return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v }
-    const head = ['Player', 'Number', 'Position', ...done.map((s) => `${s.date} ${s.kind}`), 'Present', 'Late', 'Excused', 'Absent', 'Attendance %']
+    const head = ['Player', 'Number', 'Position', ...done.map((s) => `${s.date} ${s.kind}${s.required ? '' : ' (optional)'}`), 'Present', 'Late', 'Excused', 'Absent', 'Attendance %', 'Optional attended']
     const rows = st.players.map((p) => {
       const s = st.statsFor(p.id)
-      return [p.name, p.number ?? '', p.position ?? '', ...done.map((x) => st.marks[x.id]?.[p.id]?.status ?? ''), s.P, s.L, s.E, s.A, s.pct ?? '']
+      return [p.name, p.number ?? '', p.position ?? '', ...done.map((x) => st.marks[x.id]?.[p.id]?.status ?? ''), s.P, s.L, s.E, s.A, s.pct ?? '', s.extra]
     })
     const csv = [head, ...rows].map((r) => r.map(q).join(',')).join('\n')
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
@@ -87,7 +87,7 @@ export function History({ email }: { email: string }) {
                   <li key={s.id}>
                     <button type="button" className="hist-row" onClick={() => go('today', s.date)}>
                       <span className="row-between">
-                        <span className="who-text"><span className="name">{fmtDay(s.date)}</span><span className="sub">{s.kind}</span></span>
+                        <span className="who-text"><span className="name">{fmtDay(s.date)}</span><span className="sub">{s.kind}{!s.required && <span className="tag">Optional</span>}</span></span>
                         <span className="hist-n">{c.P + c.L}<small> / {total}</small></span>
                       </span>
                       <span className="stackbar thin" aria-hidden="true">
@@ -102,6 +102,21 @@ export function History({ email }: { email: string }) {
         ))}
 
         <section className="card pad stack-12 account">
+          <h2 className="h-label">Training days</h2>
+          <p className="sub">Sessions on these days count toward attendance. Any other day is optional.</p>
+          <div className="days" role="group" aria-label="Training days">
+            {DAY_SHORT.map((d, i) => {
+              const on = st.trainingDays.includes(i)
+              return (
+                <button key={d} type="button" className={`day${on ? ' on' : ''}`} aria-pressed={on} aria-label={DAY_LONG[i]}
+                  onClick={() => st.setTrainingDays(on ? st.trainingDays.filter((x) => x !== i) : [...st.trainingDays, i])}>{d}</button>
+              )
+            })}
+          </div>
+          <p className="sub">Changing this affects new sessions. Use the session type on Today to change one you already recorded.</p>
+        </section>
+
+        <section className="card pad stack-12">
           <h2 className="h-label">Account</h2>
           <p className="sub">Signed in as {email}. Your data is stored in your private database and syncs across devices.</p>
           <button type="button" className="btn" onClick={() => supabase.auth.signOut()}>Sign out</button>

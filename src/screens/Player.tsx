@@ -21,13 +21,14 @@ export function Player({ id }: { id: string }) {
   }
 
   const s = st.statsFor(p.id)
-  const record = st.sessions
+  const all = st.sessions
     .map((sess) => ({ sess, m: st.marks[sess.id]?.[p.id] }))
     .filter((r) => r.m)
+  const record = all.filter((r) => r.sess.required)
   const last = record.slice(-18)
   const recentCounted = record.filter((r) => r.m!.status !== 'E').slice(-5)
   const recentMissed = recentCounted.filter((r) => r.m!.status === 'A').length
-  const notes = record.filter((r) => r.m!.note).reverse()
+  const notes = all.filter((r) => r.m!.note).reverse()
   const counted = st.activePlayers.map((x) => st.statsFor(x.id).pct).filter((v): v is number => v !== null)
   const avg = counted.length ? Math.round(counted.reduce((a, b) => a + b, 0) / counted.length) : null
   const lv = level(s.pct)
@@ -60,7 +61,7 @@ export function Player({ id }: { id: string }) {
 
         <section className="card pad stack-12">
           <div className="row-between">
-            <h2 className="h-label">Last {last.length || ''} sessions</h2>
+            <h2 className="h-label">{last.length === 1 ? 'Last training session' : `Last ${last.length || ''} training sessions`}</h2>
             {last.length > 0 && <span className="sub">oldest → newest</span>}
           </div>
           {last.length === 0 ? (
@@ -82,6 +83,9 @@ export function Player({ id }: { id: string }) {
             <div key={k} className="tile"><span className={`tile-n t-${k}`}>{s[k]}</span><span className="tile-l">{STATUS_LABEL[k]}</span></div>
           ))}
         </section>
+        {s.extra > 0 && (
+          <p className="bonus"><strong>+{s.extra}</strong> optional session{s.extra === 1 ? '' : 's'} attended. Extra effort, not counted in the %.</p>
+        )}
 
         <section className="card pad stack-12">
           <h2 className="h-label">Notes</h2>
@@ -92,7 +96,7 @@ export function Player({ id }: { id: string }) {
               {notes.map(({ sess, m }) => (
                 <li key={sess.id}>
                   <button type="button" onClick={() => go('today', sess.date)}>
-                    <span className="sub">{fmtShort(sess.date)} · {sess.kind} · {STATUS_LABEL[m!.status]}</span>
+                    <span className="sub">{fmtShort(sess.date)} · {sess.kind}{sess.required ? '' : ' (optional)'} · {STATUS_LABEL[m!.status]}</span>
                     <span>{m!.note}</span>
                   </button>
                 </li>
