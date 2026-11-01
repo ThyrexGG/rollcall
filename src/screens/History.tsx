@@ -149,6 +149,8 @@ export function History({ email }: { email: string }) {
           </section>
         )}
 
+        {st.canEdit && <CourtCard />}
+
         {st.club.role === 'owner' && <CoachesCard />}
 
         <section className="card pad stack-12">
@@ -165,6 +167,63 @@ export function History({ email }: { email: string }) {
         {reportOpen && <ShareSheet text={monthReport(st, month)} />}
       </Sheet>
     </div>
+  )
+}
+
+function CourtCard() {
+  const st = useStore()
+  const c = st.court
+  const [start, setStart] = useState(c.start)
+  const [end, setEnd] = useState(c.end)
+  const [late, setLate] = useState(c.late ?? '')
+  const [radius, setRadius] = useState(c.radius)
+  const [locating, setLocating] = useState(false)
+  const dirty = start !== c.start || end !== c.end || (late || null) !== c.late || radius !== c.radius
+
+  function saveHere() {
+    if (!('geolocation' in navigator)) { st.notify('This phone can’t share its location.'); return }
+    setLocating(true)
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      setLocating(false)
+      const ok = await st.saveCourt({ lat: pos.coords.latitude, lng: pos.coords.longitude })
+      if (ok) st.notify(`Court location saved (accurate to about ${Math.round(pos.coords.accuracy)} m)`)
+    }, () => { setLocating(false); st.notify('Location blocked. Allow location for this site in your browser settings.') },
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 })
+  }
+
+  return (
+    <section className="card pad stack-12">
+      <h2 className="h-label">Court check-in</h2>
+      <p className="sub">Print the poster once and put it at the court. Players scan it during check-in hours, and it only works when they’re at the court.</p>
+      <p className={`court-status ${c.lat ? 'ok' : 'warn'}`}>
+        <Icon.qr />
+        {c.lat ? `Court location saved · players must be within ${c.radius} m` : 'Court location not saved yet. Until it is, every check-in waits for your OK.'}
+      </p>
+      <button type="button" className="btn" disabled={locating} onClick={saveHere}>
+        {locating ? 'Finding your location…' : c.lat ? 'Update court location (stand on the court)' : 'Save court location (stand on the court)'}
+      </button>
+      <form className="stack-12" onSubmit={async (e) => {
+        e.preventDefault()
+        if (end <= start) { st.notify('Closing time must be after opening time'); return }
+        if (await st.saveCourt({ start, end, late: late || null, radius })) st.notify('Check-in times saved')
+      }}>
+        <div className="times">
+          <label className="field"><span>Opens</span><input id="ci-start" type="time" value={start} onChange={(e) => setStart(e.target.value)} required /></label>
+          <label className="field"><span>Closes</span><input id="ci-end" type="time" value={end} onChange={(e) => setEnd(e.target.value)} required /></label>
+          <label className="field"><span>Late after</span><input id="ci-late" type="time" value={late} onChange={(e) => setLate(e.target.value)} /></label>
+        </div>
+        <label className="field"><span>How close to the court</span>
+          <select id="ci-radius" className="select" value={radius} onChange={(e) => setRadius(Number(e.target.value))}>
+            {[80, 150, 250, 400].map((r) => <option key={r} value={r}>{r} m{r === 150 ? ' (recommended)' : ''}</option>)}
+          </select>
+        </label>
+        {dirty && <button type="submit" className="btn primary">Save times</button>}
+      </form>
+      <div className="row-2">
+        <button type="button" className="btn primary" onClick={() => go('poster')}>Open poster</button>
+        <ConfirmButton className="btn" label="New QR code" confirm="Tap again: old poster stops" onConfirm={() => st.newCourtCode()} />
+      </div>
+    </section>
   )
 }
 

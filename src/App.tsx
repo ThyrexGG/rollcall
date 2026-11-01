@@ -10,7 +10,8 @@ import { Today } from './screens/Today'
 import { Squad } from './screens/Squad'
 import { Player } from './screens/Player'
 import { History } from './screens/History'
-import { CheckIn } from './screens/CheckIn'
+import { CourtCheckIn } from './screens/CourtCheckIn'
+import { Poster } from './screens/Poster'
 
 export default function App() {
   const route = useRoute()
@@ -27,7 +28,7 @@ export default function App() {
   }, [])
 
   // Players scanning a QR code never need an account.
-  if (route.tab === 'checkin') return <CheckIn code={route.code} />
+  if (route.tab === 'court') return <CourtCheckIn code={route.code} />
 
   if (auth === undefined) return <Splash />
   if (recovering && auth) return <NewPassword done={() => setRecovering(false)} />
@@ -52,6 +53,7 @@ function Shell({ email }: { email: string }) {
   useEffect(() => { if (route.tab === 'today' && route.date) setDate(route.date) }, [route])
 
   if (st.loading) return <Splash />
+  if (route.tab === 'poster') return <><Poster /><Toast msg={st.toast} /></>
 
   const tab = route.tab === 'player' ? 'squad' : route.tab
   return (

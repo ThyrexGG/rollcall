@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { supabase } from './supabase'
 import {
   DEFAULT_TRAINING_DAYS, emptyTally, finishTally,
-  type Coach, type Mark, type Player, type Role, type Session, type Stats, type Status,
+  type Coach, type Court, type Mark, type Player, type Role, type Session, type Stats, type Status,
 } from './types'
 import { weekday } from './dates'
 
@@ -12,7 +12,7 @@ type Marks = Record<string, Record<string, Mark>> // sessionId (or "pending:<dat
 interface QueuedMark { date: string; playerId: string; status: Status | null; note?: string | null; t: number }
 type Queue = Record<string, QueuedMark>
 
-interface Cache { players: Player[]; sessions: Session[]; marks: Marks; trainingDays: number[]; clubName: string; club: { owner: string; role: Role } }
+interface Cache { players: Player[]; sessions: Session[]; marks: Marks; trainingDays: number[]; clubName: string; club: { owner: string; role: Role }; court?: Court }
 
 interface Store {
   loading: boolean
@@ -22,6 +22,10 @@ interface Store {
   club: { owner: string; role: Role }
   canEdit: boolean
   clubName: string
+  court: Court
+  saveCourt: (patch: Partial<Court>) => Promise<boolean>
+  newCourtCode: () => Promise<void>
+  approve: (date: string, playerId: string) => Promise<void>
   setClubName: (name: string) => Promise<void>
   players: Player[]
   activePlayers: Player[]
@@ -68,6 +72,9 @@ function byNumberThenName(a: Player, b: Player) {
   return a.name.localeCompare(b.name)
 }
 
+const DEFAULT_COURT: Court = { code: null, lat: null, lng: null, radius: 150, start: '17:00', end: '20:30', late: '17:45' }
+const hm = (t: string | null) => (t ? t.slice(0, 5) : null)
+
 const SESSION_COLS = 'id,date,kind,required,checkin_code,checkin_until,late_after'
 
 function readJSON<T>(key: string): T | null {
@@ -111,6 +118,7 @@ export function StoreProvider({ userId, children }: { userId: string; children: 
   const [marks, setMarks] = useState<Marks>(() => applyQueue(cached?.marks ?? {}, cached?.sessions ?? [], readJSON<Queue>(queueKey) ?? {}))
   const [trainingDays, setDays] = useState<number[]>(cached?.trainingDays ?? DEFAULT_TRAINING_DAYS)
   const [clubName, setClubNameState] = useState(cached?.clubName ?? 'Volleyball club')
+  const [court, setCourt] = useState<Court>(cached?.court ?? DEFAULT_COURT)
   const [coaches, setCoaches] = useState<Coach[]>([])
   const [queue, setQueue] = useState<Queue>(() => readJSON<Queue>(queueKey) ?? {})
   const [toast, setToast] = useState<string | null>(null)
@@ -156,8 +164,8 @@ export function StoreProvider({ userId, children }: { userId: string; children: 
       const [p, s, a, cfg, co] = await Promise.all([
         supabase.from('players').select('id,name,number,position,active,created_at').eq('owner', c.owner),
         supabase.from('sessions').select(SESSION_COLS).eq('owner', c.owner).order('date'),
-        supabase.from('attendance').select('session_id,player_id,status,note,self_checked').eq('owner', c.owner),
-        supabase.from('settings').select('training_days,club_name').eq('owner', c.owner).maybeSingle(),
+        supabase.from('attendance').select('session_id,player_id,status,note,self_checked,needs_ok,distance_m').eq('owner', c.owner),
+        supabase.from('settings').select('training_days,club_name,court_code,court_lat,court_lng,court_radius_m,checkin_start,checkin_end,checkin_late').eq('owner', c.owner).maybeSingle(),
         c.role === 'owner' ? supabase.from('coaches').select('coach,coach_email,role').eq('owner', userId) : Promise.resolve({ data: [], error: null }),
       ])
       const err = p.error || s.error || a.error || cfg.error
@@ -165,15 +173,21 @@ export function StoreProvider({ userId, children }: { userId: string; children: 
       const ps = (p.data as Player[]).sort(byNumberThenName)
       const ss = s.data as Session[]
       const m: Marks = {}
-      for (const r of a.data as { session_id: string; player_id: string; status: Status; note: string | null; self_checked: boolean }[]) {
-        ;(m[r.session_id] ||= {})[r.player_id] = { status: r.status, note: r.note, self: r.self_checked }
+      for (const r of a.data as { session_id: string; player_id: string; status: Status; note: string | null; self_checked: boolean; needs_ok: boolean; distance_m: number | null }[]) {
+        ;(m[r.session_id] ||= {})[r.player_id] = { status: r.status, note: r.note, self: r.self_checked, pending: r.needs_ok, distance: r.distance_m }
       }
+      const cd = cfg.data as Record<string, unknown> | null
+      const ct: Court = cd ? {
+        code: (cd.court_code as string) ?? null, lat: (cd.court_lat as number) ?? null, lng: (cd.court_lng as number) ?? null,
+        radius: (cd.court_radius_m as number) ?? 150, start: hm(cd.checkin_start as string) ?? '17:00', end: hm(cd.checkin_end as string) ?? '20:30',
+        late: hm((cd.checkin_late as string) ?? null),
+      } : DEFAULT_COURT
       const days = (cfg.data as { training_days: number[] } | null)?.training_days ?? DEFAULT_TRAINING_DAYS
       const name = (cfg.data as { club_name: string } | null)?.club_name ?? 'Volleyball club'
-      setClub(c); setPlayers(ps); setSessions(ss); setDays(days); setClubNameState(name)
+      setClub(c); setPlayers(ps); setSessions(ss); setDays(days); setClubNameState(name); setCourt(ct)
       setCoaches((co.data as Coach[]) ?? [])
       setMarks(applyQueue(m, ss, queueRef.current))
-      writeJSON(cacheKey, { players: ps, sessions: ss, marks: m, trainingDays: days, clubName: name, club: c } satisfies Cache)
+      writeJSON(cacheKey, { players: ps, sessions: ss, marks: m, trainingDays: days, clubName: name, club: c, court: ct } satisfies Cache)
       setOffline(false); setError(null)
     } catch (e) {
       console.error('load', e)
@@ -190,10 +204,10 @@ export function StoreProvider({ userId, children }: { userId: string; children: 
     const t = window.setTimeout(() => {
       const clean: Marks = {}
       for (const [k, v] of Object.entries(marks)) if (!k.startsWith('pending:')) clean[k] = v
-      writeJSON(cacheKey, { players, sessions, marks: clean, trainingDays, clubName, club } satisfies Cache)
+      writeJSON(cacheKey, { players, sessions, marks: clean, trainingDays, clubName, club, court } satisfies Cache)
     }, 400)
     return () => window.clearTimeout(t)
-  }, [loading, players, sessions, marks, trainingDays, clubName, club, cacheKey])
+  }, [loading, players, sessions, marks, trainingDays, clubName, club, court, cacheKey])
 
   // ---------- sessions ----------
   const ensureSession = useCallback(async (date: string): Promise<Session> => {
@@ -251,13 +265,13 @@ export function StoreProvider({ userId, children }: { userId: string; children: 
             const now = new Date().toISOString()
             if (noNote.length) {
               const { error } = await supabase.from('attendance').upsert(
-                noNote.map(([, i]) => ({ session_id: s.id, player_id: i.playerId, owner, status: i.status, updated_at: now })),
+                noNote.map(([, i]) => ({ session_id: s.id, player_id: i.playerId, owner, status: i.status, needs_ok: false, updated_at: now })),
                 { onConflict: 'session_id,player_id' })
               if (error) throw error
             }
             if (withNote.length) {
               const { error } = await supabase.from('attendance').upsert(
-                withNote.map(([, i]) => ({ session_id: s.id, player_id: i.playerId, owner, status: i.status, note: i.note, updated_at: now })),
+                withNote.map(([, i]) => ({ session_id: s.id, player_id: i.playerId, owner, status: i.status, note: i.note, needs_ok: false, updated_at: now })),
                 { onConflict: 'session_id,player_id' })
               if (error) throw error
             }
@@ -433,6 +447,38 @@ export function StoreProvider({ userId, children }: { userId: string; children: 
     else notify('Club name saved')
   }, [fail, notify])
 
+  const saveCourt = useCallback(async (patch: Partial<Court>) => {
+    const before = court
+    const next = { ...court, ...patch }
+    setCourt(next)
+    const row: Record<string, unknown> = { owner: clubRef.current.owner, updated_at: new Date().toISOString() }
+    if ('lat' in patch) row.court_lat = patch.lat
+    if ('lng' in patch) row.court_lng = patch.lng
+    if ('radius' in patch) row.court_radius_m = patch.radius
+    if ('start' in patch) row.checkin_start = patch.start
+    if ('end' in patch) row.checkin_end = patch.end
+    if ('late' in patch) row.checkin_late = patch.late
+    const { error } = await supabase.from('settings').upsert(row, { onConflict: 'owner' })
+    if (error) { setCourt(before); fail('Court settings', error); return false }
+    return true
+  }, [court, fail])
+
+  const newCourtCode = useCallback(async () => {
+    const code = randomCode(12)
+    const { error } = await supabase.from('settings').upsert({ owner: clubRef.current.owner, court_code: code, updated_at: new Date().toISOString() }, { onConflict: 'owner' })
+    if (error) { fail('New QR code', error); return }
+    setCourt((c) => ({ ...c, code }))
+    notify('New QR code made. Print the new poster; the old one stops working.')
+  }, [fail, notify])
+
+  const approve = useCallback(async (date: string, playerId: string) => {
+    const s = sessionsRef.current.find((x) => x.date === date)
+    if (!s) return
+    setMarks((prev) => ({ ...prev, [s.id]: { ...(prev[s.id] || {}), [playerId]: { ...prev[s.id][playerId], pending: false } } }))
+    const { error } = await supabase.from('attendance').update({ needs_ok: false }).eq('session_id', s.id).eq('player_id', playerId)
+    if (error) { fail('Approving', error); reload() }
+  }, [fail, reload])
+
   const addPlayers = useCallback(async (rows: { name: string; number: string | null; position: string | null }[]) => {
     if (!rows.length) return 0
     const { data, error } = await supabase.from('players').insert(rows.map((r) => ({ ...r, owner: clubRef.current.owner }))).select('id,name,number,position,active,created_at')
@@ -489,7 +535,7 @@ export function StoreProvider({ userId, children }: { userId: string; children: 
       const required = sid.startsWith('pending:') ? trainingDays.includes(weekday(sid.slice(8))) : req[sid] ?? true
       for (const [pid, m] of Object.entries(marks[sid])) {
         const s = out[pid]
-        if (!s) continue
+        if (!s || m.pending) continue
         if (required) s[m.status]++
         else s.normal[m.status]++
       }
@@ -505,7 +551,7 @@ export function StoreProvider({ userId, children }: { userId: string; children: 
 
   const value: Store = {
     loading, error, offline, pendingCount: Object.keys(queue).length,
-    club, canEdit, clubName, setClubName,
+    club, canEdit, clubName, setClubName, court, saveCourt, newCourtCode, approve,
     players, activePlayers: players.filter((p) => p.active),
     sessions, marks, trainingDays, setTrainingDays, isRequired, setRequired,
     sessionFor, dayMarks, statsFor,

@@ -41,6 +41,19 @@ export interface Mark {
   status: Status
   note: string | null
   self?: boolean // player checked themselves in by QR
+  pending?: boolean // QR check-in the coach still has to confirm (no location / weak GPS)
+  distance?: number | null // metres from court at check-in
+}
+
+/** Printed court QR settings. Times are "HH:MM". */
+export interface Court {
+  code: string | null
+  lat: number | null
+  lng: number | null
+  radius: number
+  start: string
+  end: string
+  late: string | null
 }
 
 export interface Tally {

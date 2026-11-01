@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react'
-import QRCode from 'qrcode'
 import { useStore } from '../lib/store'
 import { currentTrainingDay, fmtDay, stepTrainingDay, today, weekday } from '../lib/dates'
 import { DAY_LONG, SESSION_KINDS, STATUSES, STATUS_LABEL, type Player, type Status } from '../lib/types'
@@ -27,7 +26,10 @@ export function Today({ date, setDate }: { date: string; setDate: (d: string) =>
   const [shareOpen, setShareOpen] = useState(false)
   const [q, setQ] = useState('')
   const [unmarkedOnly, setUnmarkedOnly] = useState(false)
-  const checkinOpen = !!(session?.checkin_code && session.checkin_until && new Date(session.checkin_until) > new Date())
+  const now = new Date()
+  const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+  const checkinOpen = isToday && !!st.court.code && hhmm >= st.court.start && hhmm <= st.court.end
+  const waiting = roster.filter((p) => day[p.id]?.pending)
 
   // while check-in is open, refresh every few seconds so self check-ins appear
   useEffect(() => {
@@ -82,7 +84,7 @@ export function Today({ date, setDate }: { date: string; setDate: (d: string) =>
           <div className="hero-actions">
             {st.canEdit && (
               <button type="button" className={`hero-btn${checkinOpen ? ' live' : ''}`} onClick={() => setQrOpen(true)}>
-                <Icon.qr /> {checkinOpen ? 'Check-in open' : 'QR check-in'}
+                <Icon.qr /> {checkinOpen ? 'Court check-in live' : 'Court check-in'}
               </button>
             )}
             <button type="button" className="hero-btn" onClick={() => setShareOpen(true)} disabled={!marked}><Icon.send /> Share</button>
@@ -111,6 +113,21 @@ export function Today({ date, setDate }: { date: string; setDate: (d: string) =>
         ) : (
           <>
             {!st.canEdit && <p className="banner info" role="status">You have view-only access. Ask the club owner for marking access.</p>}
+            {st.canEdit && waiting.length > 0 && (
+              <section className="needs" aria-label="Check-ins to confirm">
+                <h2>Needs OK · {waiting.length}</h2>
+                <p className="sub">These players scanned the court QR but their location couldn’t be checked.</p>
+                <ul className="stack-8">
+                  {waiting.map((p) => (
+                    <li key={p.id}>
+                      <span className="name">{p.name}</span>
+                      <button type="button" className="pill-btn" onClick={() => st.setMark(date, p.id, null)}>Reject</button>
+                      <button type="button" className="pill-btn accent" onClick={() => st.approve(date, p.id)}>Approve</button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
             <div className="toolbar">
               <label className="search">
                 <Icon.search />
@@ -145,7 +162,7 @@ export function Today({ date, setDate }: { date: string; setDate: (d: string) =>
                           <span className="name">{p.name}</span>
                           <span className="sub">
                             {[p.position, `Training ${pct(s.pct)}`, `Normal ${pct(s.normal.pct)}`].filter(Boolean).join(' · ')}
-                            {m?.self ? <span className="tag self">QR</span> : null}
+                            {m?.self ? <span className={`tag ${m.pending ? 'wait' : 'self'}`}>{m.pending ? 'Needs OK' : 'QR'}</span> : null}
                             {m?.note ? <> · <Icon.note /></> : null}
                           </span>
                         </span>
@@ -203,8 +220,8 @@ export function Today({ date, setDate }: { date: string; setDate: (d: string) =>
         </div>
       </Sheet>
 
-      <Sheet open={qrOpen} onClose={() => setQrOpen(false)} title="QR check-in">
-        {qrOpen && <CheckinSheet date={date} />}
+      <Sheet open={qrOpen} onClose={() => setQrOpen(false)} title="Court check-in">
+        {qrOpen && <CourtSheet live={checkinOpen} close={() => setQrOpen(false)} />}
       </Sheet>
 
       <Sheet open={shareOpen} onClose={() => setShareOpen(false)} title="Share to Telegram">
@@ -241,63 +258,21 @@ function MarkSheet({ p, date, close }: { p: Player; date: string; close: () => v
   )
 }
 
-function CheckinSheet({ date }: { date: string }) {
+function CourtSheet({ live, close }: { live: boolean; close: () => void }) {
   const st = useStore()
-  const s = st.sessionFor(date)
-  const open = !!(s?.checkin_code && s.checkin_until && new Date(s.checkin_until) > new Date())
-  const [late, setLate] = useState(s?.late_after?.slice(0, 5) ?? '18:10')
-  const [useLate, setUseLate] = useState(s ? s.late_after !== null : true)
-  const [svg, setSvg] = useState('')
-  const [busy, setBusy] = useState(false)
-  const url = open && s ? `${location.origin}/#checkin-${s.checkin_code}` : ''
-
-  useEffect(() => {
-    if (!url) { setSvg(''); return }
-    QRCode.toString(url, { type: 'svg', margin: 1, errorCorrectionLevel: 'M', color: { dark: '#0E1E33', light: '#FFFFFF' } }).then(setSvg)
-  }, [url])
-
-  const day = st.dayMarks(date)
-  const selfCount = Object.values(day).filter((m) => m.self).length
-
-  if (!open) {
-    return (
-      <div className="stack-16">
-        <p className="sheet-sub">Players scan a code at the court and tap their own name. You still see and can change every mark.</p>
-        <label className="toggle-row">
-          <span className="who-text">
-            <span className="name">Mark late after a time</span>
-            <span className="sub">Check-ins after this time are marked L instead of P.</span>
-          </span>
-          <input id="use-late" type="checkbox" role="switch" checked={useLate} onChange={(e) => setUseLate(e.target.checked)} />
-        </label>
-        {useLate && (
-          <label className="field">
-            <span>Late after</span>
-            <input id="late-after" type="time" value={late} onChange={(e) => setLate(e.target.value)} />
-          </label>
-        )}
-        <button type="button" className="btn primary" disabled={busy} onClick={async () => { setBusy(true); await st.openCheckin(date, useLate && late ? late : null); setBusy(false) }}>
-          {busy ? 'Opening…' : `Open check-in for ${fmtDay(date)}`}
-        </button>
-        <p className="hint">Check-in stays open for 4 hours, or until you close it.</p>
-      </div>
-    )
-  }
-
+  const c = st.court
   return (
-    <div className="stack-16 qr-wrap">
-      <div className="qr" role="img" aria-label="Check-in QR code" dangerouslySetInnerHTML={{ __html: svg }} />
-      <p className="qr-meta">
-        <strong>{selfCount}</strong> checked in by QR{s?.late_after ? ` · late after ${s.late_after.slice(0, 5)}` : ''}
-        <br />Open until {new Date(s!.checkin_until!).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+    <div className="stack-16">
+      <p className={`court-status ${live ? 'ok' : 'warn'}`}>
+        <Icon.qr />
+        {live ? `Live now until ${c.end}. Players scan the poster at the court.` : `Opens automatically ${c.start}–${c.end} every day.`}
       </p>
+      {!c.lat && <p className="banner info">Court location isn’t saved yet, so every QR check-in waits for your OK. Save it in History while you’re at the court.</p>}
+      <p className="sheet-sub">Late after {c.late ?? 'no limit'} · must be within {c.radius} m of the court · one phone per player.</p>
       <div className="row-2">
-        <button type="button" className="btn" onClick={async () => {
-          try { await navigator.clipboard.writeText(url); st.notify('Link copied') } catch { st.notify(url) }
-        }}>Copy link</button>
-        <button type="button" className="btn" onClick={() => shareToTelegram(`Check in for ${fmtDay(date)} training: tap your name.`, url)}>Send in Telegram</button>
+        <button type="button" className="btn" onClick={() => { close(); go('history') }}>Settings</button>
+        <button type="button" className="btn primary" onClick={() => { close(); go('poster') }}>Poster</button>
       </div>
-      <ConfirmButton className="btn danger-outline" label="Close check-in" confirm="Tap again to close" onConfirm={() => st.closeCheckin(date)} />
     </div>
   )
 }
