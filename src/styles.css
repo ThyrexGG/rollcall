@@ -319,3 +319,55 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
 .form-msg.ok { background: #123A2A; color: #8BE5BA; }
 .switch { text-align: center; font-size: 14px; color: var(--on-navy-2); }
 .switch .link { padding: 0; }
+
+/* ---- v3: search, check-in, sharing, sync, coaches, streaks ---- */
+.hero-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.hero-btn { min-height: 44px; border-radius: 12px; border: 1px solid var(--navy-line); background: rgba(255,255,255,.06); color: var(--on-navy); font-weight: 700; font-size: 14px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.hero-btn.live { background: var(--yellow); border-color: var(--yellow); color: var(--on-yellow); }
+.toolbar { display: flex; gap: 8px; align-items: center; }
+.search { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 46px; padding: 0 14px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); }
+.search input { flex: 1; min-width: 0; border: 0; background: transparent; font-size: 16px; color: var(--ink); outline: none; }
+.search:focus-within { outline: 3px solid var(--yellow); outline-offset: 1px; }
+.toolbar .chip { min-height: 46px; border-radius: 14px; flex: none; font-variant-numeric: tabular-nums; }
+.center-text { text-align: center; padding: 16px 0; }
+.banner.info { background: var(--e-tint); color: var(--e-ink); }
+.tag.self { background: var(--e-tint); color: var(--e-ink); margin-left: 2px; }
+.tag.s-P { background: var(--p-tint); color: var(--p-ink); }
+.tag.s-L { background: var(--l-tint); color: var(--l-ink); }
+.tag.s-E { background: var(--e-tint); color: var(--e-ink); }
+.tag.s-A { background: var(--a-tint); color: var(--a-ink); }
+.seg-b:disabled { opacity: 1; cursor: default; }
+.syncbar { position: sticky; top: 0; z-index: 25; display: flex; align-items: center; gap: 8px; padding: calc(env(safe-area-inset-top, 0px) + 8px) max(16px, env(safe-area-inset-right, 0px)) 8px max(16px, env(safe-area-inset-left, 0px)); background: var(--l-tint); color: var(--l-ink); font-size: 13px; font-weight: 600; }
+.syncbar svg { flex: none; }
+.qr-wrap { align-items: stretch; }
+.qr { align-self: center; width: min(280px, 100%); aspect-ratio: 1; max-width: 100%; background: #FFFFFF; border-radius: 16px; padding: 10px; }
+.qr svg { width: 100%; height: 100%; display: block; }
+.qr-meta { text-align: center; font-size: 14px; color: var(--muted); line-height: 1.5; }
+.qr-meta strong { color: var(--ink); font-size: 18px; }
+.share-preview { margin: 0; white-space: pre-wrap; word-break: break-word; font: 14px/1.5 var(--font); background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; max-height: 40dvh; overflow-y: auto; }
+.select { min-height: 50px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); padding: 0 12px; font-size: 15px; font-weight: 600; min-width: 0; }
+.club-name { grid-template-columns: 1fr auto; align-items: end; }
+.coach-list { display: flex; flex-direction: column; }
+.coach-list li { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line-2); }
+.coach-list li:last-child { border-bottom: 0; }
+.coach-list .name { font-size: 14.5px; overflow-wrap: anywhere; }
+.streak { display: flex; align-items: center; gap: 12px; background: var(--l-tint); color: var(--l-ink); border-radius: 14px; padding: 12px 14px; }
+.streak .sub { color: var(--l-ink); opacity: .85; }
+.streak-ico { flex: none; width: 36px; height: 36px; border-radius: 50%; background: var(--yellow); color: var(--on-yellow); display: grid; place-items: center; }
+
+/* public check-in page */
+.checkin { min-height: 100dvh; background: var(--bg); }
+.checkin-head { background: var(--navy); color: var(--on-navy); display: flex; align-items: center; gap: 14px; padding: calc(env(safe-area-inset-top, 0px) + 24px) max(20px, env(safe-area-inset-right, 0px)) 22px max(20px, env(safe-area-inset-left, 0px)); border-radius: 0 0 24px 24px; }
+.checkin-head h1 { font-size: 24px; font-weight: 800; font-stretch: 112%; line-height: 1.15; text-wrap: balance; }
+.logo.small { width: 44px; height: 44px; border-radius: 12px; font-size: 22px; flex: none; }
+.checkin-body { max-width: 560px; margin: 0 auto; padding: 18px max(16px, env(safe-area-inset-right, 0px)) 40px max(16px, env(safe-area-inset-left, 0px)); display: flex; flex-direction: column; gap: 14px; }
+.checkin-lead { font-size: 17px; font-weight: 700; }
+.checkin-row { width: 100%; min-height: 56px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 16px; background: none; border: 0; text-align: left; color: var(--ink); }
+.checkin-row:disabled { opacity: .7; }
+.checkin-row svg { color: var(--muted); }
+.confirm-card, .done { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 22px 18px; display: flex; flex-direction: column; gap: 12px; }
+.confirm-card h2, .done h2 { font-size: 26px; font-weight: 800; font-stretch: 112%; line-height: 1.15; }
+.done { align-items: center; text-align: center; }
+.done-mark { width: 72px; height: 72px; border-radius: 50%; display: grid; place-items: center; font-size: 30px; font-weight: 800; background: var(--c); color: var(--c-on); }
+.form-msg.light { background: var(--a-tint); color: var(--a-ink); }
+@media (max-width: 360px) { .toolbar .chip { padding: 0 10px; } }

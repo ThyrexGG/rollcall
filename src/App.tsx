@@ -5,22 +5,32 @@ import { StoreProvider, useStore } from './lib/store'
 import { currentTrainingDay } from './lib/dates'
 import { go, useRoute } from './router'
 import { Icon, Toast } from './components/ui'
-import { SignIn } from './screens/SignIn'
+import { SignIn, NewPassword } from './screens/SignIn'
 import { Today } from './screens/Today'
 import { Squad } from './screens/Squad'
 import { Player } from './screens/Player'
 import { History } from './screens/History'
+import { CheckIn } from './screens/CheckIn'
 
 export default function App() {
+  const route = useRoute()
   const [auth, setAuth] = useState<AuthSession | null | undefined>(undefined)
+  const [recovering, setRecovering] = useState(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setAuth(data.session))
-    const { data } = supabase.auth.onAuthStateChange((_e, s) => setAuth(s))
+    const { data } = supabase.auth.onAuthStateChange((event, s) => {
+      if (event === 'PASSWORD_RECOVERY') setRecovering(true)
+      setAuth(s)
+    })
     return () => data.subscription.unsubscribe()
   }, [])
 
+  // Players scanning a QR code never need an account.
+  if (route.tab === 'checkin') return <CheckIn code={route.code} />
+
   if (auth === undefined) return <Splash />
+  if (recovering && auth) return <NewPassword done={() => setRecovering(false)} />
   if (!auth) return <SignIn />
   return (
     <StoreProvider key={auth.user.id} userId={auth.user.id}>
@@ -50,6 +60,17 @@ function Shell({ email }: { email: string }) {
         <div className="offline" role="alert">
           <span>{st.error}</span>
           <button type="button" className="pill-btn accent" onClick={() => st.reload()}>Retry</button>
+        </div>
+      )}
+      {!st.error && (st.offline || st.pendingCount > 0) && (
+        <div className={`syncbar${st.offline ? ' off' : ''}`} role="status">
+          <Icon.sync />
+          <span>
+            {st.offline ? 'Offline. ' : ''}
+            {st.pendingCount
+              ? `${st.pendingCount} change${st.pendingCount === 1 ? '' : 's'} saved on this phone, will sync when you’re back online.`
+              : 'Showing saved data. Marks you make are kept and sync later.'}
+          </span>
         </div>
       )}
       {route.tab === 'today' && <Today date={date} setDate={(d) => { setDate(d); if (location.hash.startsWith('#day-')) history.replaceState(null, '', '#today') }} />}

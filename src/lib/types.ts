@@ -19,7 +19,18 @@ export interface Session {
   id: string
   date: string // YYYY-MM-DD
   kind: string
-  required: boolean // counts toward attendance %
+  required: boolean // training day (true) or normal day (false)
+  checkin_code: string | null
+  checkin_until: string | null
+  late_after: string | null // "HH:MM:SS"
+}
+
+export type Role = 'owner' | 'editor' | 'viewer'
+
+export interface Coach {
+  coach: string
+  coach_email: string
+  role: 'viewer' | 'editor'
 }
 
 export const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -29,6 +40,7 @@ export const DEFAULT_TRAINING_DAYS = [2, 5] // Tuesday, Friday
 export interface Mark {
   status: Status
   note: string | null
+  self?: boolean // player checked themselves in by QR
 }
 
 export interface Tally {

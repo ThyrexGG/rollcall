@@ -1,16 +1,31 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { supabase } from './supabase'
-import { DEFAULT_TRAINING_DAYS, emptyTally, finishTally, type Mark, type Player, type Session, type Stats, type Status } from './types'
+import {
+  DEFAULT_TRAINING_DAYS, emptyTally, finishTally,
+  type Coach, type Mark, type Player, type Role, type Session, type Stats, type Status,
+} from './types'
 import { weekday } from './dates'
 
-type Marks = Record<string, Record<string, Mark>> // sessionId -> playerId -> mark
+type Marks = Record<string, Record<string, Mark>> // sessionId (or "pending:<date>") -> playerId -> mark
+
+/** A mark change waiting to reach the server. Keyed by `${date}|${playerId}`; the latest change wins. */
+interface QueuedMark { date: string; playerId: string; status: Status | null; note?: string | null; t: number }
+type Queue = Record<string, QueuedMark>
+
+interface Cache { players: Player[]; sessions: Session[]; marks: Marks; trainingDays: number[]; clubName: string; club: { owner: string; role: Role } }
 
 interface Store {
   loading: boolean
   error: string | null
+  offline: boolean
+  pendingCount: number
+  club: { owner: string; role: Role }
+  canEdit: boolean
+  clubName: string
+  setClubName: (name: string) => Promise<void>
   players: Player[]
   activePlayers: Player[]
-  sessions: Session[] // sorted ascending by date
+  sessions: Session[]
   marks: Marks
   trainingDays: number[]
   setTrainingDays: (days: number[]) => Promise<void>
@@ -20,13 +35,18 @@ interface Store {
   dayMarks: (date: string) => Record<string, Mark>
   statsFor: (playerId: string) => Stats
   setMark: (date: string, playerId: string, status: Status | null) => void
-  setNote: (date: string, playerId: string, note: string) => Promise<void>
+  setNote: (date: string, playerId: string, note: string) => void
   markRest: (date: string, status?: Status) => void
   setKind: (date: string, kind: string) => Promise<void>
   deleteSession: (date: string) => Promise<void>
+  openCheckin: (date: string, lateAfter: string | null) => Promise<Session | null>
+  closeCheckin: (date: string) => Promise<void>
   addPlayers: (rows: { name: string; number: string | null; position: string | null }[]) => Promise<number>
   updatePlayer: (id: string, patch: Partial<Pick<Player, 'name' | 'number' | 'position' | 'active'>>) => Promise<void>
   deletePlayer: (id: string) => Promise<void>
+  coaches: Coach[]
+  addCoach: (email: string, role: 'viewer' | 'editor') => Promise<boolean>
+  removeCoach: (coachId: string) => Promise<void>
   reload: () => Promise<void>
   toast: string | null
   notify: (msg: string) => void
@@ -40,7 +60,7 @@ export function useStore(): Store {
   return s
 }
 
-function byName(a: Player, b: Player) {
+function byNumberThenName(a: Player, b: Player) {
   const na = parseInt(a.number ?? '', 10)
   const nb = parseInt(b.number ?? '', 10)
   if (!isNaN(na) && !isNaN(nb) && na !== nb) return na - nb
@@ -48,22 +68,65 @@ function byName(a: Player, b: Player) {
   return a.name.localeCompare(b.name)
 }
 
+const SESSION_COLS = 'id,date,kind,required,checkin_code,checkin_until,late_after'
+
+function readJSON<T>(key: string): T | null {
+  try { const v = localStorage.getItem(key); return v ? (JSON.parse(v) as T) : null } catch { return null }
+}
+function writeJSON(key: string, v: unknown) {
+  try { localStorage.setItem(key, JSON.stringify(v)) } catch { /* storage full or blocked */ }
+}
+
+function randomCode(n = 10) {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'
+  const a = new Uint32Array(n)
+  crypto.getRandomValues(a)
+  return Array.from(a, (x) => chars[x % chars.length]).join('')
+}
+
+/** Lay queued (unsynced) changes over server data so a reload never hides them. */
+function applyQueue(marks: Marks, sessions: Session[], queue: Queue): Marks {
+  const out: Marks = { ...marks }
+  for (const q of Object.values(queue)) {
+    const sid = sessions.find((s) => s.date === q.date)?.id ?? `pending:${q.date}`
+    const day = { ...(out[sid] || {}) }
+    if (q.status) day[q.playerId] = { status: q.status, note: q.note !== undefined ? q.note : day[q.playerId]?.note ?? null, self: false }
+    else delete day[q.playerId]
+    out[sid] = day
+  }
+  return out
+}
+
 export function StoreProvider({ userId, children }: { userId: string; children: ReactNode }) {
-  const [loading, setLoading] = useState(true)
+  const cacheKey = `rollcall-cache-${userId}`
+  const queueKey = `rollcall-queue-${userId}`
+  const cached = useRef(readJSON<Cache>(cacheKey)).current
+
+  const [loading, setLoading] = useState(!cached)
   const [error, setError] = useState<string | null>(null)
-  const [players, setPlayers] = useState<Player[]>([])
-  const [sessions, setSessions] = useState<Session[]>([])
-  const [marks, setMarks] = useState<Marks>({})
-  const [trainingDays, setDays] = useState<number[]>(DEFAULT_TRAINING_DAYS)
-  const daysRef = useRef<number[]>(DEFAULT_TRAINING_DAYS)
-  daysRef.current = trainingDays
+  const [offline, setOffline] = useState(false)
+  const [club, setClub] = useState<{ owner: string; role: Role }>(cached?.club ?? { owner: userId, role: 'owner' })
+  const [players, setPlayers] = useState<Player[]>(cached?.players ?? [])
+  const [sessions, setSessions] = useState<Session[]>(cached?.sessions ?? [])
+  const [marks, setMarks] = useState<Marks>(() => applyQueue(cached?.marks ?? {}, cached?.sessions ?? [], readJSON<Queue>(queueKey) ?? {}))
+  const [trainingDays, setDays] = useState<number[]>(cached?.trainingDays ?? DEFAULT_TRAINING_DAYS)
+  const [clubName, setClubNameState] = useState(cached?.clubName ?? 'Volleyball club')
+  const [coaches, setCoaches] = useState<Coach[]>([])
+  const [queue, setQueue] = useState<Queue>(() => readJSON<Queue>(queueKey) ?? {})
   const [toast, setToast] = useState<string | null>(null)
+
   const toastTimer = useRef<number | undefined>(undefined)
   const pending = useRef<Record<string, Promise<Session>>>({})
-  const sessionsRef = useRef<Session[]>([])
-  sessionsRef.current = sessions
-  const playersRef = useRef<Player[]>([])
-  playersRef.current = players
+  const sessionsRef = useRef(sessions); sessionsRef.current = sessions
+  const playersRef = useRef(players); playersRef.current = players
+  const marksRef = useRef(marks); marksRef.current = marks
+  const daysRef = useRef(trainingDays); daysRef.current = trainingDays
+  const clubRef = useRef(club); clubRef.current = club
+  const queueRef = useRef(queue); queueRef.current = queue
+  const flushing = useRef(false)
+  const flushAgain = useRef(false)
+
+  const canEdit = club.role !== 'viewer'
 
   const notify = useCallback((msg: string) => {
     setToast(msg)
@@ -73,48 +136,66 @@ export function StoreProvider({ userId, children }: { userId: string; children: 
 
   const fail = useCallback((what: string, e: unknown) => {
     console.error(what, e)
-    notify(`${what} didn't save. Check your connection and try again.`)
+    const msg = (e as { message?: string })?.message ?? ''
+    if (!navigator.onLine || /fetch|network/i.test(msg)) notify(`You're offline. ${what} needs a connection.`)
+    else notify(`${what} didn't save. ${msg && msg.length < 120 ? msg : 'Try again.'}`)
   }, [notify])
 
+  const saveQueue = useCallback((q: Queue) => {
+    queueRef.current = q
+    setQueue(q)
+    writeJSON(queueKey, q)
+  }, [queueKey])
+
+  // ---------- load ----------
   const reload = useCallback(async () => {
-    setError(null)
-    const [p, s, a, cfg] = await Promise.all([
-      supabase.from('players').select('id,name,number,position,active,created_at'),
-      supabase.from('sessions').select('id,date,kind,required').order('date'),
-      supabase.from('attendance').select('session_id,player_id,status,note'),
-      supabase.from('settings').select('training_days').maybeSingle(),
-    ])
-    const err = p.error || s.error || a.error
-    if (!cfg.error && cfg.data) setDays((cfg.data as { training_days: number[] }).training_days)
-    if (err) {
-      setError('Could not load your squad. Check your connection, then pull to refresh.')
+    try {
+      const link = await supabase.from('coaches').select('owner,role').eq('coach', userId).maybeSingle()
+      if (link.error) throw link.error
+      const c = link.data ? { owner: link.data.owner as string, role: link.data.role as Role } : { owner: userId, role: 'owner' as Role }
+      const [p, s, a, cfg, co] = await Promise.all([
+        supabase.from('players').select('id,name,number,position,active,created_at').eq('owner', c.owner),
+        supabase.from('sessions').select(SESSION_COLS).eq('owner', c.owner).order('date'),
+        supabase.from('attendance').select('session_id,player_id,status,note,self_checked').eq('owner', c.owner),
+        supabase.from('settings').select('training_days,club_name').eq('owner', c.owner).maybeSingle(),
+        c.role === 'owner' ? supabase.from('coaches').select('coach,coach_email,role').eq('owner', userId) : Promise.resolve({ data: [], error: null }),
+      ])
+      const err = p.error || s.error || a.error || cfg.error
+      if (err) throw err
+      const ps = (p.data as Player[]).sort(byNumberThenName)
+      const ss = s.data as Session[]
+      const m: Marks = {}
+      for (const r of a.data as { session_id: string; player_id: string; status: Status; note: string | null; self_checked: boolean }[]) {
+        ;(m[r.session_id] ||= {})[r.player_id] = { status: r.status, note: r.note, self: r.self_checked }
+      }
+      const days = (cfg.data as { training_days: number[] } | null)?.training_days ?? DEFAULT_TRAINING_DAYS
+      const name = (cfg.data as { club_name: string } | null)?.club_name ?? 'Volleyball club'
+      setClub(c); setPlayers(ps); setSessions(ss); setDays(days); setClubNameState(name)
+      setCoaches((co.data as Coach[]) ?? [])
+      setMarks(applyQueue(m, ss, queueRef.current))
+      writeJSON(cacheKey, { players: ps, sessions: ss, marks: m, trainingDays: days, clubName: name, club: c } satisfies Cache)
+      setOffline(false); setError(null)
+    } catch (e) {
+      console.error('load', e)
+      if (cached || playersRef.current.length) setOffline(true)
+      else setError('Could not load your squad. Check your connection and try again.')
+    } finally {
       setLoading(false)
-      return
     }
-    setPlayers((p.data as Player[]).sort(byName))
-    setSessions(s.data as Session[])
-    const m: Marks = {}
-    for (const r of a.data as { session_id: string; player_id: string; status: Status; note: string | null }[]) {
-      ;(m[r.session_id] ||= {})[r.player_id] = { status: r.status, note: r.note }
-    }
-    setMarks(m)
-    setLoading(false)
-  }, [])
+  }, [userId, cacheKey, cached])
 
+  // keep the on-device copy current so the app opens with the latest data even without signal
   useEffect(() => {
-    reload()
-    const onVis = () => { if (document.visibilityState === 'visible') reload() }
-    document.addEventListener('visibilitychange', onVis)
-    return () => document.removeEventListener('visibilitychange', onVis)
-  }, [reload])
+    if (loading) return
+    const t = window.setTimeout(() => {
+      const clean: Marks = {}
+      for (const [k, v] of Object.entries(marks)) if (!k.startsWith('pending:')) clean[k] = v
+      writeJSON(cacheKey, { players, sessions, marks: clean, trainingDays, clubName, club } satisfies Cache)
+    }, 400)
+    return () => window.clearTimeout(t)
+  }, [loading, players, sessions, marks, trainingDays, clubName, club, cacheKey])
 
-  const sessionFor = useCallback((date: string) => sessions.find((s) => s.date === date), [sessions])
-
-  const dayMarks = useCallback((date: string): Record<string, Mark> => {
-    const sid = sessions.find((s) => s.date === date)?.id
-    return { ...(marks[`pending:${date}`] || {}), ...(sid ? marks[sid] || {} : {}) }
-  }, [sessions, marks])
-
+  // ---------- sessions ----------
   const ensureSession = useCallback(async (date: string): Promise<Session> => {
     const existing = sessionsRef.current.find((s) => s.date === date)
     if (existing) return existing
@@ -122,104 +203,163 @@ export function StoreProvider({ userId, children }: { userId: string; children: 
     const p = (async () => {
       const { data, error } = await supabase
         .from('sessions')
-        .upsert({ date, owner: userId, required: daysRef.current.includes(weekday(date)) }, { onConflict: 'owner,date' })
-        .select('id,date,kind,required')
+        .upsert({ date, owner: clubRef.current.owner, required: daysRef.current.includes(weekday(date)) }, { onConflict: 'owner,date', ignoreDuplicates: false })
+        .select(SESSION_COLS)
         .single()
       if (error) throw error
       const s = data as Session
-      setSessions((prev) => (prev.some((x) => x.id === s.id) ? prev : [...prev, s].sort((a, b) => a.date.localeCompare(b.date))))
+      setSessions((prev) => {
+        const next = prev.some((x) => x.id === s.id) ? prev : [...prev, s].sort((a, b) => a.date.localeCompare(b.date))
+        sessionsRef.current = next
+        return next
+      })
+      // move marks made before the session existed onto its real id
+      setMarks((prev) => {
+        const tmp = prev[`pending:${date}`]
+        if (!tmp) return prev
+        const next = { ...prev, [s.id]: { ...(prev[s.id] || {}), ...tmp } }
+        delete next[`pending:${date}`]
+        return next
+      })
       return s
     })()
     pending.current[date] = p
     try { return await p } finally { delete pending.current[date] }
-  }, [userId])
+  }, [])
 
-  const applyLocal = (sessionId: string, playerId: string, mark: Mark | null) => {
+  // ---------- sync queue ----------
+  const flush = useCallback(async () => {
+    if (flushing.current) { flushAgain.current = true; return }
+    flushing.current = true
+    try {
+      do {
+        flushAgain.current = false
+        const q = queueRef.current
+        const entries = Object.entries(q)
+        if (!entries.length) break
+        const byDate: Record<string, [string, QueuedMark][]> = {}
+        for (const e of entries) (byDate[e[1].date] ||= []).push(e)
+        const done: Record<string, number> = {}
+        let networkDown = false
+        for (const [date, items] of Object.entries(byDate)) {
+          try {
+            const s = await ensureSession(date)
+            const owner = clubRef.current.owner
+            const withNote = items.filter(([, i]) => i.status && i.note !== undefined)
+            const noNote = items.filter(([, i]) => i.status && i.note === undefined)
+            const dels = items.filter(([, i]) => !i.status)
+            const now = new Date().toISOString()
+            if (noNote.length) {
+              const { error } = await supabase.from('attendance').upsert(
+                noNote.map(([, i]) => ({ session_id: s.id, player_id: i.playerId, owner, status: i.status, updated_at: now })),
+                { onConflict: 'session_id,player_id' })
+              if (error) throw error
+            }
+            if (withNote.length) {
+              const { error } = await supabase.from('attendance').upsert(
+                withNote.map(([, i]) => ({ session_id: s.id, player_id: i.playerId, owner, status: i.status, note: i.note, updated_at: now })),
+                { onConflict: 'session_id,player_id' })
+              if (error) throw error
+            }
+            if (dels.length) {
+              const { error } = await supabase.from('attendance').delete().eq('session_id', s.id).in('player_id', dels.map(([, i]) => i.playerId))
+              if (error) throw error
+            }
+            for (const [k, i] of items) done[k] = i.t
+          } catch (e) {
+            const msg = (e as { message?: string })?.message ?? ''
+            if (!navigator.onLine || /fetch|network|Failed/i.test(msg)) { networkDown = true; break }
+            console.error('sync', e)
+            notify(`Some marks for ${date} were rejected: ${msg}`)
+            for (const [k, i] of items) done[k] = i.t // drop rejected changes so they don't retry forever
+          }
+        }
+        if (Object.keys(done).length) {
+          const next = { ...queueRef.current }
+          for (const [k, t] of Object.entries(done)) if (next[k]?.t === t) delete next[k]
+          saveQueue(next)
+        }
+        setOffline(networkDown)
+        if (networkDown) break
+      } while (flushAgain.current)
+    } finally {
+      flushing.current = false
+    }
+  }, [ensureSession, notify, saveQueue])
+
+  useEffect(() => {
+    reload().then(() => flush())
+    const onVis = () => { if (document.visibilityState === 'visible') reload().then(() => flush()) }
+    const onOnline = () => { flush().then(() => reload()) }
+    document.addEventListener('visibilitychange', onVis)
+    window.addEventListener('online', onOnline)
+    const t = window.setInterval(() => { if (Object.keys(queueRef.current).length) flush() }, 15000)
+    return () => {
+      document.removeEventListener('visibilitychange', onVis)
+      window.removeEventListener('online', onOnline)
+      window.clearInterval(t)
+    }
+  }, [reload, flush])
+
+  // ---------- marks (offline-safe) ----------
+  const queueMarks = useCallback((date: string, changes: { playerId: string; status: Status | null; note?: string | null }[]) => {
+    const sid = sessionsRef.current.find((s) => s.date === date)?.id ?? `pending:${date}`
     setMarks((prev) => {
-      const day = { ...(prev[sessionId] || {}) }
-      if (mark) day[playerId] = mark
-      else delete day[playerId]
-      return { ...prev, [sessionId]: day }
+      const day = { ...(prev[sid] || {}) }
+      for (const c of changes) {
+        if (c.status) day[c.playerId] = { status: c.status, note: c.note !== undefined ? c.note : day[c.playerId]?.note ?? null, self: false }
+        else delete day[c.playerId]
+      }
+      return { ...prev, [sid]: day }
     })
-  }
+    const next = { ...queueRef.current }
+    const t = Date.now()
+    for (const c of changes) {
+      const key = `${date}|${c.playerId}`
+      const prevNote = next[key]?.note
+      next[key] = { date, playerId: c.playerId, status: c.status, note: c.note !== undefined ? c.note : prevNote, t }
+    }
+    saveQueue(next)
+    flush()
+  }, [saveQueue, flush])
+
+  const dayMarks = useCallback((date: string): Record<string, Mark> => {
+    const sid = sessions.find((s) => s.date === date)?.id
+    return { ...(marks[`pending:${date}`] || {}), ...(sid ? marks[sid] || {} : {}) }
+  }, [sessions, marks])
 
   const setMark = useCallback((date: string, playerId: string, status: Status | null) => {
-    const tempKey = `pending:${date}`
-    const known = sessionsRef.current.find((s) => s.date === date)
-    const sid = known?.id ?? tempKey
-    const prevMark = marks[sid]?.[playerId] ?? null
-    applyLocal(sid, playerId, status ? { status, note: prevMark?.note ?? null } : null)
-    ;(async () => {
-      try {
-        const s = await ensureSession(date)
-        if (!known) {
-          // move optimistic marks from temp key to the real session id
-          setMarks((prev) => {
-            const tmp = prev[tempKey]
-            if (!tmp) return prev
-            const next = { ...prev, [s.id]: { ...(prev[s.id] || {}), ...tmp } }
-            delete next[tempKey]
-            return next
-          })
-        }
-        if (status) {
-          const { error } = await supabase
-            .from('attendance')
-            .upsert({ session_id: s.id, player_id: playerId, owner: userId, status, updated_at: new Date().toISOString() }, { onConflict: 'session_id,player_id' })
-          if (error) throw error
-        } else {
-          const { error } = await supabase.from('attendance').delete().match({ session_id: s.id, player_id: playerId })
-          if (error) throw error
-        }
-      } catch (e) {
-        const realId = sessionsRef.current.find((s) => s.date === date)?.id ?? sid
-        applyLocal(realId, playerId, prevMark)
-        fail('That mark', e)
-      }
-    })()
-  }, [marks, ensureSession, userId, fail])
+    if (!canEdit) return
+    queueMarks(date, [{ playerId, status }])
+  }, [canEdit, queueMarks])
 
   const markRest = useCallback((date: string, status: Status = 'P') => {
+    if (!canEdit) return
     const sid = sessionsRef.current.find((s) => s.date === date)?.id
-    const day = { ...(marks[`pending:${date}`] || {}), ...(sid ? marks[sid] || {} : {}) }
+    const m = marksRef.current
+    const day = { ...(m[`pending:${date}`] || {}), ...(sid ? m[sid] || {} : {}) }
     const todo = playersRef.current.filter((p) => p.active && !day[p.id])
     if (!todo.length) { notify('Everyone is already marked'); return }
-    const word = status === 'P' ? 'present' : 'absent'
-    ;(async () => {
-      try {
-        const s = await ensureSession(date)
-        setMarks((prev) => {
-          const d = { ...(prev[s.id] || {}) }
-          todo.forEach((p) => { d[p.id] = { status, note: null } })
-          return { ...prev, [s.id]: d }
-        })
-        const { error } = await supabase.from('attendance').upsert(
-          todo.map((p) => ({ session_id: s.id, player_id: p.id, owner: userId, status })),
-          { onConflict: 'session_id,player_id' },
-        )
-        if (error) throw error
-        notify(`${todo.length} marked ${word}`)
-      } catch (e) {
-        fail(`Marking ${word}`, e)
-        reload()
-      }
-    })()
-  }, [marks, ensureSession, userId, notify, fail, reload])
+    queueMarks(date, todo.map((p) => ({ playerId: p.id, status })))
+    notify(`${todo.length} marked ${status === 'P' ? 'present' : 'absent'}`)
+  }, [canEdit, queueMarks, notify])
 
-  const setNote = useCallback(async (date: string, playerId: string, note: string) => {
-    const s = sessionsRef.current.find((x) => x.date === date)
-    const cur = s ? marks[s.id]?.[playerId] : undefined
-    if (!s || !cur) { notify('Mark them first, then add a note'); return }
-    const clean = note.trim().slice(0, 280) || null
-    applyLocal(s.id, playerId, { ...cur, note: clean })
-    const { error } = await supabase.from('attendance').update({ note: clean }).match({ session_id: s.id, player_id: playerId })
-    if (error) { applyLocal(s.id, playerId, cur); fail('The note', error) }
-  }, [marks, notify, fail])
+  const setNote = useCallback((date: string, playerId: string, note: string) => {
+    const cur = dayMarks(date)[playerId]
+    if (!cur) { notify('Mark them first, then add a note'); return }
+    queueMarks(date, [{ playerId, status: cur.status, note: note.trim().slice(0, 280) || null }])
+  }, [dayMarks, queueMarks, notify])
+
+  // ---------- online-only actions ----------
+  const sessionFor = useCallback((date: string) => sessions.find((s) => s.date === date), [sessions])
+
+  const patchSession = (id: string, patch: Partial<Session>) =>
+    setSessions((prev) => { const n = prev.map((x) => (x.id === id ? { ...x, ...patch } : x)); sessionsRef.current = n; return n })
 
   const setKind = useCallback(async (date: string, kind: string) => {
     try {
       const s = await ensureSession(date)
-      setSessions((prev) => prev.map((x) => (x.id === s.id ? { ...x, kind } : x)))
+      patchSession(s.id, { kind })
       const { error } = await supabase.from('sessions').update({ kind }).eq('id', s.id)
       if (error) throw error
     } catch (e) { fail('Session type', e); reload() }
@@ -233,45 +373,80 @@ export function StoreProvider({ userId, children }: { userId: string; children: 
   const setRequired = useCallback(async (date: string, required: boolean) => {
     try {
       const s = await ensureSession(date)
-      setSessions((prev) => prev.map((x) => (x.id === s.id ? { ...x, required } : x)))
+      patchSession(s.id, { required })
       const { error } = await supabase.from('sessions').update({ required }).eq('id', s.id)
       if (error) throw error
       notify(required ? 'Now a training day' : 'Now a normal day')
     } catch (e) { fail('That change', e); reload() }
   }, [ensureSession, notify, fail, reload])
 
+  const deleteSession = useCallback(async (date: string) => {
+    const s = sessionsRef.current.find((x) => x.date === date)
+    const next = { ...queueRef.current }
+    for (const k of Object.keys(next)) if (next[k].date === date) delete next[k]
+    saveQueue(next)
+    setMarks((prev) => { const n = { ...prev }; delete n[`pending:${date}`]; if (s) delete n[s.id]; return n })
+    if (!s) return
+    const { error } = await supabase.from('sessions').delete().eq('id', s.id)
+    if (error) { fail('Clearing the session', error); reload(); return }
+    setSessions((prev) => prev.filter((x) => x.id !== s.id))
+    notify('Session cleared')
+  }, [fail, notify, reload, saveQueue])
+
+  const openCheckin = useCallback(async (date: string, lateAfter: string | null) => {
+    try {
+      const s = await ensureSession(date)
+      const code = s.checkin_code && s.checkin_until && new Date(s.checkin_until) > new Date() ? s.checkin_code : randomCode()
+      const until = new Date(Date.now() + 4 * 3600 * 1000).toISOString()
+      const patch = { checkin_code: code, checkin_until: until, late_after: lateAfter }
+      const { error } = await supabase.from('sessions').update(patch).eq('id', s.id)
+      if (error) throw error
+      patchSession(s.id, patch)
+      return { ...s, ...patch }
+    } catch (e) { fail('Opening check-in', e); return null }
+  }, [ensureSession, fail])
+
+  const closeCheckin = useCallback(async (date: string) => {
+    const s = sessionsRef.current.find((x) => x.date === date)
+    if (!s) return
+    const patch = { checkin_until: new Date().toISOString() }
+    const { error } = await supabase.from('sessions').update(patch).eq('id', s.id)
+    if (error) { fail('Closing check-in', error); return }
+    patchSession(s.id, patch)
+    notify('Check-in closed')
+  }, [fail, notify])
+
   const setTrainingDays = useCallback(async (days: number[]) => {
     const before = daysRef.current
     const sorted = [...days].sort()
     setDays(sorted)
-    const { error } = await supabase.from('settings').upsert({ owner: userId, training_days: sorted, updated_at: new Date().toISOString() }, { onConflict: 'owner' })
+    const { error } = await supabase.from('settings').upsert({ owner: clubRef.current.owner, training_days: sorted, updated_at: new Date().toISOString() }, { onConflict: 'owner' })
     if (error) { setDays(before); fail('Training days', error) }
-  }, [userId, fail])
+  }, [fail])
 
-  const deleteSession = useCallback(async (date: string) => {
-    const s = sessionsRef.current.find((x) => x.date === date)
-    if (!s) return
-    const { error } = await supabase.from('sessions').delete().eq('id', s.id)
-    if (error) { fail('Clearing the session', error); return }
-    setSessions((prev) => prev.filter((x) => x.id !== s.id))
-    setMarks((prev) => { const n = { ...prev }; delete n[s.id]; return n })
-    notify('Session cleared')
+  const setClubName = useCallback(async (name: string) => {
+    const clean = name.trim().slice(0, 60)
+    if (!clean) return
+    setClubNameState(clean)
+    const { error } = await supabase.from('settings').upsert({ owner: clubRef.current.owner, club_name: clean, updated_at: new Date().toISOString() }, { onConflict: 'owner' })
+    if (error) fail('Club name', error)
+    else notify('Club name saved')
   }, [fail, notify])
 
   const addPlayers = useCallback(async (rows: { name: string; number: string | null; position: string | null }[]) => {
     if (!rows.length) return 0
-    const { data, error } = await supabase.from('players').insert(rows.map((r) => ({ ...r, owner: userId }))).select('id,name,number,position,active,created_at')
+    const { data, error } = await supabase.from('players').insert(rows.map((r) => ({ ...r, owner: clubRef.current.owner }))).select('id,name,number,position,active,created_at')
     if (error) { fail('Adding players', error); return 0 }
-    setPlayers((prev) => [...prev, ...(data as Player[])].sort(byName))
+    setPlayers((prev) => [...prev, ...(data as Player[])].sort(byNumberThenName))
     return data.length
-  }, [userId, fail])
+  }, [fail])
 
   const updatePlayer = useCallback(async (id: string, patch: Partial<Pick<Player, 'name' | 'number' | 'position' | 'active'>>) => {
     const before = playersRef.current.find((p) => p.id === id)
-    setPlayers((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)).sort(byName))
+    setPlayers((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)).sort(byNumberThenName))
     const { error } = await supabase.from('players').update(patch).eq('id', id)
     if (error && before) {
-      setPlayers((prev) => prev.map((p) => (p.id === id ? before : p)).sort(byName))
+      setPlayers((prev) => prev.map((p) => (p.id === id ? before : p)).sort(byNumberThenName))
       fail('Player changes', error)
     }
   }, [fail])
@@ -288,6 +463,23 @@ export function StoreProvider({ userId, children }: { userId: string; children: 
     notify('Player deleted')
   }, [fail, notify])
 
+  const addCoach = useCallback(async (email: string, role: 'viewer' | 'editor') => {
+    const { data, error } = await supabase.rpc('add_coach', { p_email: email, p_role: role })
+    if (error) { notify(error.message); return false }
+    const c = data as Coach
+    setCoaches((prev) => [...prev.filter((x) => x.coach !== c.coach), c])
+    notify(`${c.coach_email} added as ${role === 'editor' ? 'a coach who can mark' : 'a viewer'}`)
+    return true
+  }, [notify])
+
+  const removeCoach = useCallback(async (coachId: string) => {
+    const { error } = await supabase.from('coaches').delete().eq('owner', userId).eq('coach', coachId)
+    if (error) { fail('Removing the coach', error); return }
+    setCoaches((prev) => prev.filter((c) => c.coach !== coachId))
+    notify('Access removed')
+  }, [userId, fail, notify])
+
+  // ---------- stats ----------
   const statsCache = useMemo(() => {
     const out: Record<string, Stats> = {}
     for (const p of players) out[p.id] = { ...emptyTally(), normal: emptyTally() }
@@ -312,12 +504,15 @@ export function StoreProvider({ userId, children }: { userId: string; children: 
   )
 
   const value: Store = {
-    loading, error, players,
-    activePlayers: players.filter((p) => p.active),
-    sessions, marks, sessionFor, dayMarks, statsFor,
-    trainingDays, setTrainingDays, isRequired, setRequired,
-    setMark, setNote, markRest, setKind, deleteSession,
-    addPlayers, updatePlayer, deletePlayer, reload, toast, notify,
+    loading, error, offline, pendingCount: Object.keys(queue).length,
+    club, canEdit, clubName, setClubName,
+    players, activePlayers: players.filter((p) => p.active),
+    sessions, marks, trainingDays, setTrainingDays, isRequired, setRequired,
+    sessionFor, dayMarks, statsFor,
+    setMark, setNote, markRest, setKind, deleteSession, openCheckin, closeCheckin,
+    addPlayers, updatePlayer, deletePlayer,
+    coaches, addCoach, removeCoach,
+    reload, toast, notify,
   }
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

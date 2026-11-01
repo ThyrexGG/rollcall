@@ -38,7 +38,7 @@ export function Squad({ openAdd }: { openAdd: boolean }) {
       <header className="page-head">
         <div className="row-between">
           <h1>Squad</h1>
-          <button type="button" className="icon-btn solid" aria-label="Add players" onClick={() => setAdding(true)}><Icon.plus /></button>
+          {st.canEdit && <button type="button" className="icon-btn solid" aria-label="Add players" onClick={() => setAdding(true)}><Icon.plus /></button>}
         </div>
         <div className="tiles">
           <div className="tile dark"><span className="tile-n">{avg === null ? '–' : `${avg}%`}</span><span className="tile-l">Training days avg</span></div>
@@ -60,7 +60,7 @@ export function Squad({ openAdd }: { openAdd: boolean }) {
             <Icon.ball size={40} />
             <h2>No players yet</h2>
             <p>Paste your whole roster at once, one player per line.</p>
-            <button type="button" className="btn primary" onClick={() => setAdding(true)}>Add players</button>
+            {st.canEdit && <button type="button" className="btn primary" onClick={() => setAdding(true)}>Add players</button>}
           </section>
         ) : (
           <ul className="card list">

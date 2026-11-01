@@ -38,6 +38,14 @@ export function Player({ id }: { id: string }) {
   const avgN = average(squad.map((x) => x.normal.pct))
   const normalRecord = all.filter((r) => !r.sess.required)
   const lv = level(s.pct)
+  // streak: consecutive training sessions attended (P or L); excused doesn't break it
+  let current = 0, best = 0, run = 0
+  for (const r of record) {
+    const st2 = r.m!.status
+    if (st2 === 'E') continue
+    if (st2 === 'P' || st2 === 'L') { run++; best = Math.max(best, run) } else run = 0
+  }
+  current = run
 
   return (
     <div className="screen">
@@ -45,7 +53,7 @@ export function Player({ id }: { id: string }) {
         <span className="ghost-num" aria-hidden="true">{p.number ?? ''}</span>
         <div className="row-between rel">
           <button type="button" className="icon-btn" aria-label="Back to squad" onClick={() => (history.length > 1 ? history.back() : go('squad'))}><Icon.back /></button>
-          <button type="button" className="pill-btn on-dark" onClick={() => setEditing(true)}>Edit</button>
+          {st.canEdit && <button type="button" className="pill-btn on-dark" onClick={() => setEditing(true)}>Edit</button>}
         </div>
         <div className="rel stack-4">
           <span className="eyebrow accent">{[p.number ? `#${p.number}` : null, p.position, p.active ? null : 'Archived'].filter(Boolean).join(' · ') || 'Player'}</span>
@@ -71,6 +79,15 @@ export function Player({ id }: { id: string }) {
           </div>
         )}
 
+        {(current > 0 || best > 0) && (
+          <section className="streak">
+            <span className="streak-ico"><Icon.flame /></span>
+            <span className="who-text">
+              <span className="name">{current} training{current === 1 ? '' : 's'} in a row</span>
+              <span className="sub">Best streak: {best}. Excused sessions don’t break it.</span>
+            </span>
+          </section>
+        )}
         <RecordCard title="Training days" pct={s.pct} tally={s} items={last} />
         <RecordCard title="Normal days" pct={s.normal.pct} tally={s.normal} items={normalRecord.slice(-18)} />
 

@@ -13,6 +13,11 @@ export const Icon = {
   download: () => <svg width="16" height="16" viewBox="0 0 24 24" strokeWidth="2" {...s} aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14" /></svg>,
   alert: () => <svg width="20" height="20" viewBox="0 0 24 24" strokeWidth="2" {...s} aria-hidden="true"><path d="M12 8v5M12 16.5v.5" /><circle cx="12" cy="12" r="9" /></svg>,
   note: () => <svg width="14" height="14" viewBox="0 0 24 24" strokeWidth="2" {...s} aria-hidden="true"><path d="M5 4h10l4 4v12H5z" /><path d="M9 12h6M9 16h4" /></svg>,
+  qr: () => <svg width="18" height="18" viewBox="0 0 24 24" strokeWidth="2" {...s} aria-hidden="true"><rect x="3.5" y="3.5" width="6.5" height="6.5" rx="1" /><rect x="14" y="3.5" width="6.5" height="6.5" rx="1" /><rect x="3.5" y="14" width="6.5" height="6.5" rx="1" /><path d="M14 14h2.5v2.5M20.5 14v.01M14 20.5h.01M17.5 17.5h3v3h-3z" /></svg>,
+  send: () => <svg width="18" height="18" viewBox="0 0 24 24" strokeWidth="2" {...s} aria-hidden="true"><path d="M21 4L3 11.5l6.5 2.5L12 20.5l3-5.5L21 4z" /><path d="M9.5 14L21 4" /></svg>,
+  search: () => <svg width="18" height="18" viewBox="0 0 24 24" strokeWidth="2" {...s} aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="M16 16l4.5 4.5" /></svg>,
+  sync: () => <svg width="16" height="16" viewBox="0 0 24 24" strokeWidth="2" {...s} aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.9L20 16M20 20v-4h-4" /></svg>,
+  flame: () => <svg width="16" height="16" viewBox="0 0 24 24" strokeWidth="2" {...s} aria-hidden="true"><path d="M12 21c-3.9 0-7-2.8-7-6.6 0-3.4 2.4-5.4 4-7.4.4 1.8 1.4 3 2.6 3.6C11.4 7.4 12.6 5 15 3c.2 3 4 5.5 4 10.9C19 18.2 15.9 21 12 21z" /></svg>,
   close: () => <svg width="20" height="20" viewBox="0 0 24 24" strokeWidth="2" {...s} aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>,
   ball: (p: { size?: number }) => (
     <svg width={p.size ?? 24} height={p.size ?? 24} viewBox="0 0 100 100" strokeWidth="5" {...s} aria-hidden="true">
