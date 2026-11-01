@@ -4,7 +4,7 @@ import { DAY_LONG, FOLLOW_UP, POSITIONS, WATCH, level } from '../lib/types'
 import { Icon, Jersey, Sheet } from '../components/ui'
 import { go } from '../router'
 
-type Sort = 'low' | 'num' | 'pos'
+type Sort = 'low' | 'normal' | 'name'
 
 export function Squad({ openAdd }: { openAdd: boolean }) {
   const st = useStore()
@@ -15,14 +15,21 @@ export function Squad({ openAdd }: { openAdd: boolean }) {
 
   const active = st.activePlayers
   const archived = st.players.filter((p) => !p.active)
-  const counted = active.map((p) => st.statsFor(p.id)).filter((s) => s.pct !== null)
-  const avg = counted.length ? Math.round(counted.reduce((a, s) => a + (s.pct ?? 0), 0) / counted.length) : null
-  const followUp = counted.filter((s) => (s.pct ?? 100) < FOLLOW_UP).length
+  const all = active.map((p) => st.statsFor(p.id))
+  const average = (vals: (number | null)[]) => {
+    const v = vals.filter((x): x is number => x !== null)
+    return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : null
+  }
+  const avg = average(all.map((s) => s.pct))
+  const avgNormal = average(all.map((s) => s.normal.pct))
+  const followUp = all.filter((s) => s.pct !== null && s.pct < FOLLOW_UP).length
 
   const rows = useMemo(() => {
     const list = active.map((p) => ({ p, s: st.statsFor(p.id) }))
-    if (sort === 'low') list.sort((a, b) => (a.s.pct ?? 101) - (b.s.pct ?? 101) || a.p.name.localeCompare(b.p.name))
-    if (sort === 'pos') list.sort((a, b) => (a.p.position ?? '~').localeCompare(b.p.position ?? '~') || a.p.name.localeCompare(b.p.name))
+    const byName = (a: { p: { name: string } }, b: { p: { name: string } }) => a.p.name.localeCompare(b.p.name)
+    if (sort === 'low') list.sort((a, b) => (a.s.pct ?? 101) - (b.s.pct ?? 101) || byName(a, b))
+    if (sort === 'normal') list.sort((a, b) => (a.s.normal.pct ?? 101) - (b.s.normal.pct ?? 101) || byName(a, b))
+    if (sort === 'name') list.sort(byName)
     return list
   }, [active, st, sort])
 
@@ -34,13 +41,13 @@ export function Squad({ openAdd }: { openAdd: boolean }) {
           <button type="button" className="icon-btn solid" aria-label="Add players" onClick={() => setAdding(true)}><Icon.plus /></button>
         </div>
         <div className="tiles">
-          <div className="tile dark"><span className="tile-n">{avg === null ? '–' : `${avg}%`}</span><span className="tile-l">Squad average</span></div>
-          <div className="tile"><span className="tile-n">{st.sessions.filter((s) => s.required && Object.keys(st.marks[s.id] || {}).length).length}</span><span className="tile-l">Training sessions</span></div>
+          <div className="tile dark"><span className="tile-n">{avg === null ? '–' : `${avg}%`}</span><span className="tile-l">Training days avg</span></div>
+          <div className="tile"><span className="tile-n t-E">{avgNormal === null ? '–' : `${avgNormal}%`}</span><span className="tile-l">Normal days avg</span></div>
           <div className="tile"><span className={`tile-n${followUp ? ' danger' : ''}`}>{followUp}</span><span className="tile-l">Need follow-up</span></div>
         </div>
         {active.length > 1 && (
           <div className="chips" role="group" aria-label="Sort players">
-            {([['low', 'Lowest first'], ['num', 'Number'], ['pos', 'Position']] as [Sort, string][]).map(([k, l]) => (
+            {([['low', 'Lowest training'], ['normal', 'Lowest normal'], ['name', 'Name']] as [Sort, string][]).map(([k, l]) => (
               <button key={k} type="button" className={`chip${sort === k ? ' on' : ''}`} aria-pressed={sort === k} onClick={() => setSort(k)}>{l}</button>
             ))}
           </div>
@@ -66,11 +73,17 @@ export function Squad({ openAdd }: { openAdd: boolean }) {
                       <Jersey p={p} />
                       <span className="who-text">
                         <span className="name">{p.name}</span>
-                        <span className="sub">{p.position ? `${p.position} · ` : ''}{s.P} P · {s.L} L · {s.E} E · {s.A} A{s.extra ? ` · +${s.extra} optional` : ''}</span>
+                        {p.position && <span className="sub">{p.position}</span>}
                       </span>
-                      <span className={`pct lv-${lv}`}>{s.pct === null ? 'New' : `${s.pct}%`}</span>
+                      <span className="pcts">
+                        <span className={`pct lv-${lv}`}><small>Training</small>{s.pct === null ? '–' : `${s.pct}%`}</span>
+                        <span className="pct normal"><small>Normal</small>{s.normal.pct === null ? '–' : `${s.normal.pct}%`}</span>
+                      </span>
                     </span>
-                    <span className={`meter lv-${lv}`} aria-hidden="true"><i style={{ width: `${s.pct ?? 0}%` }} /></span>
+                    <span className="meters" aria-hidden="true">
+                      <span className={`meter lv-${lv}`}><i style={{ width: `${s.pct ?? 0}%` }} /></span>
+                      <span className="meter normal"><i style={{ width: `${s.normal.pct ?? 0}%` }} /></span>
+                    </span>
                   </button>
                 </li>
               )
@@ -78,7 +91,7 @@ export function Squad({ openAdd }: { openAdd: boolean }) {
           </ul>
         )}
         {active.length > 0 && (
-          <p className="hint">Only {st.trainingDays.map((d) => DAY_LONG[d]).join(' and ')} training counts. Attendance = (present + late) ÷ (present + late + absent). Excused never counts against a player, and optional sessions are shown as a bonus. Under {FOLLOW_UP}% needs follow-up, {FOLLOW_UP}–{WATCH - 1}% is one to watch.</p>
+          <p className="hint">Training = {st.trainingDays.map((d) => DAY_LONG[d]).join(' and ')} sessions. Normal = every other day. Each % = (present + late) ÷ (present + late + absent); excused never counts against a player. Follow-up is based on training days: under {FOLLOW_UP}% needs follow-up, {FOLLOW_UP}–{WATCH - 1}% is one to watch.</p>
         )}
         {archived.length > 0 && (
           <div className="stack-8">

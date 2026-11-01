@@ -151,7 +151,24 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
 .toggle-row input:checked { background: var(--p); }
 .toggle-row input:checked::after { left: 23px; }
 @media (prefers-reduced-motion: no-preference) { .toggle-row input::after { transition: left .15s; } }
-.tag { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 6px; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; background: var(--track); color: var(--muted); }
+.tag.train { background: var(--l-tint); color: var(--l-ink); }
+.pcts { flex: none; display: flex; gap: 6px; }
+.pcts .pct { min-width: 64px; display: flex; flex-direction: column; align-items: center; line-height: 1.15; padding: 5px 8px; border-radius: 12px; }
+.pct small { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; opacity: .8; }
+.pct.normal, .pct.lv-normal { background: var(--e-tint); color: var(--e-ink); }
+.meters { display: flex; flex-direction: column; gap: 4px; margin-left: 48px; }
+.meters .meter { margin-left: 0; }
+.meter.normal { height: 4px; }
+.meter.normal i { background: var(--e); }
+.duo { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.duo-cell { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.duo-cell .turnout-cap { text-align: left; }
+.big.mid { color: #A9BEF8; }
+.player-hero .big { font-size: 48px; }
+.mini-tiles { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 13px; color: var(--muted); }
+.mini-tiles strong { font-size: 16px; font-variant-numeric: tabular-nums; }
+.row-gap { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.tag { display: inline-block; margin-left: 0; padding: 1px 7px; border-radius: 6px; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; background: var(--track); color: var(--muted); }
 .bonus { font-size: 13.5px; color: var(--p-ink); background: var(--p-tint); border-radius: 12px; padding: 10px 14px; }
 .days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
 .day { min-height: 44px; min-width: 0; padding: 0; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); font-size: 13px; font-weight: 700; color: var(--muted); }

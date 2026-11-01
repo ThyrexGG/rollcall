@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { supabase } from './supabase'
-import { DEFAULT_TRAINING_DAYS, type Mark, type Player, type Session, type Stats, type Status } from './types'
+import { DEFAULT_TRAINING_DAYS, emptyTally, finishTally, type Mark, type Player, type Session, type Stats, type Status } from './types'
 import { weekday } from './dates'
 
 type Marks = Record<string, Record<string, Mark>> // sessionId -> playerId -> mark
@@ -21,7 +21,7 @@ interface Store {
   statsFor: (playerId: string) => Stats
   setMark: (date: string, playerId: string, status: Status | null) => void
   setNote: (date: string, playerId: string, note: string) => Promise<void>
-  markRest: (date: string) => void
+  markRest: (date: string, status?: Status) => void
   setKind: (date: string, kind: string) => Promise<void>
   deleteSession: (date: string) => Promise<void>
   addPlayers: (rows: { name: string; number: string | null; position: string | null }[]) => Promise<number>
@@ -179,27 +179,28 @@ export function StoreProvider({ userId, children }: { userId: string; children: 
     })()
   }, [marks, ensureSession, userId, fail])
 
-  const markRest = useCallback((date: string) => {
+  const markRest = useCallback((date: string, status: Status = 'P') => {
     const sid = sessionsRef.current.find((s) => s.date === date)?.id
-    const day = sid ? marks[sid] || {} : {}
+    const day = { ...(marks[`pending:${date}`] || {}), ...(sid ? marks[sid] || {} : {}) }
     const todo = playersRef.current.filter((p) => p.active && !day[p.id])
     if (!todo.length) { notify('Everyone is already marked'); return }
+    const word = status === 'P' ? 'present' : 'absent'
     ;(async () => {
       try {
         const s = await ensureSession(date)
         setMarks((prev) => {
           const d = { ...(prev[s.id] || {}) }
-          todo.forEach((p) => { d[p.id] = { status: 'P', note: null } })
+          todo.forEach((p) => { d[p.id] = { status, note: null } })
           return { ...prev, [s.id]: d }
         })
         const { error } = await supabase.from('attendance').upsert(
-          todo.map((p) => ({ session_id: s.id, player_id: p.id, owner: userId, status: 'P' })),
+          todo.map((p) => ({ session_id: s.id, player_id: p.id, owner: userId, status })),
           { onConflict: 'session_id,player_id' },
         )
         if (error) throw error
-        notify(`${todo.length} marked present`)
+        notify(`${todo.length} marked ${word}`)
       } catch (e) {
-        fail('Marking present', e)
+        fail(`Marking ${word}`, e)
         reload()
       }
     })()
@@ -235,7 +236,7 @@ export function StoreProvider({ userId, children }: { userId: string; children: 
       setSessions((prev) => prev.map((x) => (x.id === s.id ? { ...x, required } : x)))
       const { error } = await supabase.from('sessions').update({ required }).eq('id', s.id)
       if (error) throw error
-      notify(required ? 'This session now counts' : 'Marked as optional')
+      notify(required ? 'Now a training day' : 'Now a normal day')
     } catch (e) { fail('That change', e); reload() }
   }, [ensureSession, notify, fail, reload])
 
@@ -289,7 +290,7 @@ export function StoreProvider({ userId, children }: { userId: string; children: 
 
   const statsCache = useMemo(() => {
     const out: Record<string, Stats> = {}
-    for (const p of players) out[p.id] = { P: 0, L: 0, E: 0, A: 0, counted: 0, pct: null, extra: 0 }
+    for (const p of players) out[p.id] = { ...emptyTally(), normal: emptyTally() }
     const req: Record<string, boolean> = {}
     for (const s of sessions) req[s.id] = s.required
     for (const sid of Object.keys(marks)) {
@@ -298,18 +299,15 @@ export function StoreProvider({ userId, children }: { userId: string; children: 
         const s = out[pid]
         if (!s) continue
         if (required) s[m.status]++
-        else if (m.status === 'P' || m.status === 'L') s.extra++
+        else s.normal[m.status]++
       }
     }
-    for (const s of Object.values(out)) {
-      s.counted = s.P + s.L + s.A
-      s.pct = s.counted ? Math.round(((s.P + s.L) / s.counted) * 100) : null
-    }
+    for (const s of Object.values(out)) { finishTally(s); finishTally(s.normal) }
     return out
   }, [players, marks, sessions, trainingDays])
 
   const statsFor = useCallback(
-    (id: string) => statsCache[id] ?? { P: 0, L: 0, E: 0, A: 0, counted: 0, pct: null, extra: 0 },
+    (id: string) => statsCache[id] ?? { ...emptyTally(), normal: emptyTally() },
     [statsCache],
   )
 

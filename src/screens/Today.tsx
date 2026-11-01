@@ -29,7 +29,7 @@ export function Today({ date, setDate }: { date: string; setDate: (d: string) =>
           <button className="icon-btn" type="button" aria-label="Previous training day" onClick={() => setDate(stepTrainingDay(date, days, -1))}><Icon.back /></button>
           <div className="hero-date">
             <button type="button" className="kind-chip" onClick={() => setKindOpen(true)}>
-              {session?.kind ?? 'Training'} · {required ? 'Counts' : 'Optional'}{isToday ? ' · Today' : ''}
+              {[required ? 'Training day' : 'Normal day', session && session.kind !== 'Training' ? session.kind : null, isToday ? 'Today' : null].filter(Boolean).join(' · ')}
             </button>
             <label className="date-pick">
               <span className="date-big">{fmtDay(date)}</span>
@@ -57,7 +57,7 @@ export function Today({ date, setDate }: { date: string; setDate: (d: string) =>
           {STATUSES.map((k) => <span key={k}><i className={`s-${k}`} />{n[k]} {STATUS_LABEL[k].toLowerCase()}</span>)}
         </div>
         {!required && (
-          <p className="optional-note">Optional session. It’s recorded, but it doesn’t change anyone’s attendance %.</p>
+          <p className="optional-note">Normal-day session. It counts toward the normal-day %, kept separate from training-day %.</p>
         )}
         <div className="hero-links">
           {date !== homeDay && (
@@ -66,7 +66,7 @@ export function Today({ date, setDate }: { date: string; setDate: (d: string) =>
             </button>
           )}
           {!todayIsTraining && !isToday && (
-            <button type="button" className="link on-dark" onClick={() => setDate(today())}>Record an optional session today</button>
+            <button type="button" className="link on-dark" onClick={() => setDate(today())}>Record today (normal day)</button>
           )}
         </div>
       </header>
@@ -83,12 +83,18 @@ export function Today({ date, setDate }: { date: string; setDate: (d: string) =>
           <>
             <div className="row-between">
               <span className="eyebrow">Squad · {total}</span>
-              <button type="button" className="pill-btn accent" onClick={() => st.markRest(date)} disabled={marked === total}>Mark rest present</button>
+              <div className="row-gap">
+                {!required && (
+                  <button type="button" className="pill-btn" onClick={() => st.markRest(date, 'A')} disabled={marked === total}>Rest absent</button>
+                )}
+                <button type="button" className="pill-btn accent" onClick={() => st.markRest(date, 'P')} disabled={marked === total}>Rest present</button>
+              </div>
             </div>
             <ul className="card list">
               {roster.map((p) => {
                 const m = day[p.id]
                 const s = st.statsFor(p.id)
+                const pct = (t: number | null) => (t === null ? '–' : `${t}%`)
                 return (
                   <li key={p.id} className="mark-row">
                     <button type="button" className="who" onClick={() => setFocus(p)}>
@@ -96,7 +102,7 @@ export function Today({ date, setDate }: { date: string; setDate: (d: string) =>
                       <span className="who-text">
                         <span className="name">{p.name}</span>
                         <span className="sub">
-                          {[p.position, s.pct === null ? 'new' : `${s.pct}%`].filter(Boolean).join(' · ')}
+                          {[p.position, `Training ${pct(s.pct)}`, `Normal ${pct(s.normal.pct)}`].filter(Boolean).join(' · ')}
                           {m?.note ? <> · <Icon.note /></> : null}
                         </span>
                       </span>
@@ -135,8 +141,8 @@ export function Today({ date, setDate }: { date: string; setDate: (d: string) =>
       <Sheet open={kindOpen} onClose={() => setKindOpen(false)} title="Session type">
         <label className="toggle-row">
           <span className="who-text">
-            <span className="name">Counts toward attendance</span>
-            <span className="sub">On by default for {days.map((d) => DAY_LONG[d]).join(' and ') || 'no days'}. Turn off for an extra or cancelled session.</span>
+            <span className="name">Training day</span>
+            <span className="sub">On for {days.map((d) => DAY_LONG[d]).join(' and ') || 'no days'} by default. Off makes it a normal day, tracked in the normal-day %.</span>
           </span>
           <input id="required-toggle" type="checkbox" role="switch" checked={required} onChange={(e) => st.setRequired(date, e.target.checked)} />
         </label>

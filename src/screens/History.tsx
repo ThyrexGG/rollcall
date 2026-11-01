@@ -30,10 +30,14 @@ export function History({ email }: { email: string }) {
 
   function exportCsv() {
     const q = (x: string | number) => { const v = String(x); return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v }
-    const head = ['Player', 'Number', 'Position', ...done.map((s) => `${s.date} ${s.kind}${s.required ? '' : ' (optional)'}`), 'Present', 'Late', 'Excused', 'Absent', 'Attendance %', 'Optional attended']
+    const head = ['Player', 'Number', 'Position', ...done.map((s) => `${s.date} ${s.required ? 'Training day' : 'Normal day'}`),
+      'Training P', 'Training L', 'Training E', 'Training A', 'Training %',
+      'Normal P', 'Normal L', 'Normal E', 'Normal A', 'Normal %']
     const rows = st.players.map((p) => {
       const s = st.statsFor(p.id)
-      return [p.name, p.number ?? '', p.position ?? '', ...done.map((x) => st.marks[x.id]?.[p.id]?.status ?? ''), s.P, s.L, s.E, s.A, s.pct ?? '', s.extra]
+      const n = s.normal
+      return [p.name, p.number ?? '', p.position ?? '', ...done.map((x) => st.marks[x.id]?.[p.id]?.status ?? ''),
+        s.P, s.L, s.E, s.A, s.pct ?? '', n.P, n.L, n.E, n.A, n.pct ?? '']
     })
     const csv = [head, ...rows].map((r) => r.map(q).join(',')).join('\n')
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
@@ -87,7 +91,7 @@ export function History({ email }: { email: string }) {
                   <li key={s.id}>
                     <button type="button" className="hist-row" onClick={() => go('today', s.date)}>
                       <span className="row-between">
-                        <span className="who-text"><span className="name">{fmtDay(s.date)}</span><span className="sub">{s.kind}{!s.required && <span className="tag">Optional</span>}</span></span>
+                        <span className="who-text"><span className="name">{fmtDay(s.date)}</span><span className="sub">{s.kind !== 'Training' ? s.kind : ''}<span className={`tag${s.required ? ' train' : ''}`}>{s.required ? 'Training day' : 'Normal day'}</span></span></span>
                         <span className="hist-n">{c.P + c.L}<small> / {total}</small></span>
                       </span>
                       <span className="stackbar thin" aria-hidden="true">
@@ -103,7 +107,7 @@ export function History({ email }: { email: string }) {
 
         <section className="card pad stack-12 account">
           <h2 className="h-label">Training days</h2>
-          <p className="sub">Sessions on these days count toward attendance. Any other day is optional.</p>
+          <p className="sub">Sessions on these days go into the training-day %. Every other day goes into the normal-day %.</p>
           <div className="days" role="group" aria-label="Training days">
             {DAY_SHORT.map((d, i) => {
               const on = st.trainingDays.includes(i)

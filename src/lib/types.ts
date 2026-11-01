@@ -31,15 +31,29 @@ export interface Mark {
   note: string | null
 }
 
-export interface Stats {
+export interface Tally {
   P: number
   L: number
   E: number
   A: number
+  /** P + L + A (excused never counts) */
   counted: number
+  /** (P + L) / counted, rounded; null when nothing counted yet */
   pct: number | null
-  /** optional sessions attended (present or late), never part of pct */
-  extra: number
+}
+
+/** Training days (Tue/Fri by default) and normal days are tracked separately. */
+export interface Stats extends Tally {
+  normal: Tally
+}
+
+export function emptyTally(): Tally {
+  return { P: 0, L: 0, E: 0, A: 0, counted: 0, pct: null }
+}
+export function finishTally(t: Tally): Tally {
+  t.counted = t.P + t.L + t.A
+  t.pct = t.counted ? Math.round(((t.P + t.L) / t.counted) * 100) : null
+  return t
 }
 
 /** Attendance % = (present + late) / (present + late + absent). Excused never counts against. */
