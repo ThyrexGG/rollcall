@@ -8,6 +8,7 @@ import { go } from '../router'
 
 const FLAG_TEXT: Record<string, string> = {
   different_player: 'Checked in from a phone that usually belongs to someone else',
+  new_phone: 'Checked in from a new phone (their usual phone wasn’t used)',
   no_location: 'Location was off or blocked',
   weak_gps: 'GPS too weak to confirm they were at the court',
   court_not_set: 'Court location not saved yet',
@@ -75,7 +76,7 @@ export function Today({ date, setDate }: { date: string; setDate: (d: string) =>
           <span className="turnout-cap">
             on court
             <br />
-            {total - marked ? `${total - marked} still to mark` : total ? 'all marked' : ''}
+            {total - marked ? (st.isClosed(date) && required ? `${total - marked} not checked in = absent` : `${total - marked} still to mark`) : total ? 'all marked' : ''}
           </span>
         </div>
         <div className="stackbar" aria-hidden="true">
@@ -110,6 +111,15 @@ export function Today({ date, setDate }: { date: string; setDate: (d: string) =>
       </header>
 
       <main className="body">
+        {st.myInvites.map((i) => (
+              <section key={i.owner} className="invite" role="status">
+                <p><strong>{i.club_name}</strong> invited you to coach{i.role === 'viewer' ? ' (view only)' : ''}.</p>
+                <div className="row-2">
+                  <button type="button" className="btn" onClick={() => st.respondInvite(i.owner, false)}>Decline</button>
+                  <button type="button" className="btn primary" onClick={() => st.respondInvite(i.owner, true)}>Accept</button>
+                </div>
+              </section>
+            ))}
         {total === 0 ? (
           <section className="empty">
             <Icon.ball size={40} />
@@ -129,7 +139,7 @@ export function Today({ date, setDate }: { date: string; setDate: (d: string) =>
                 <ul className="stack-8">
                   {waiting.map((p) => (
                     <li key={p.id}>
-                      <span className="who-text"><span className="name">{p.name}</span><span className="sub">{FLAG_TEXT[day[p.id]?.flag ?? 'no_location']}</span></span>
+                      <span className="who-text"><span className="name">{p.name}</span><span className="sub">{FLAG_TEXT[day[p.id]?.newPhone ? 'new_phone' : day[p.id]?.flag ?? 'no_location']}</span></span>
                       <button type="button" className="pill-btn" onClick={() => st.setMark(date, p.id, null)}>Reject</button>
                       <button type="button" className="pill-btn accent" onClick={() => st.approve(date, p.id)}>Approve</button>
                     </li>

@@ -10,17 +10,19 @@ import { go } from '../router'
 
 export function History({ email }: { email: string }) {
   const st = useStore()
-  const months = monthsWithData(st.sessions.filter((s) => Object.keys(st.marks[s.id] || {}).length > 0))
+  const held = st.sessions.filter((s) => st.players.some((p) => { const m = st.effectiveMark(s, p); return m && !m.pending }))
+  const months = monthsWithData(held)
   const [picked, setMonth] = useState('')
   const month = picked && months.includes(picked) ? picked : months[0] ?? ''
   const [reportOpen, setReportOpen] = useState(false)
   const [clubName, setClubName] = useState(st.clubName)
   const total = st.activePlayers.length
-  const done = st.sessions.filter((s) => Object.keys(st.marks[s.id] || {}).length > 0)
+  const done = held
 
   const counts = (sid: string) => {
     const c: Record<Status, number> = { P: 0, L: 0, E: 0, A: 0 }
-    for (const m of Object.values(st.marks[sid] || {})) c[m.status]++
+    const s = st.sessions.find((x) => x.id === sid)!
+    for (const p of st.activePlayers) { const m = st.effectiveMark(s, p); if (m && !m.pending) c[m.status]++ }
     return c
   }
 
@@ -44,7 +46,7 @@ export function History({ email }: { email: string }) {
     const rows = st.players.map((p) => {
       const s = st.statsFor(p.id)
       const n = s.normal
-      return [p.name, p.number ?? '', p.position ?? '', ...done.map((x) => st.marks[x.id]?.[p.id]?.status ?? ''),
+      return [p.name, p.number ?? '', p.position ?? '', ...done.map((x) => { const m = st.effectiveMark(x, p); return m ? (m.auto ? 'A (no check-in)' : m.pending ? `${m.status} (needs OK)` : m.status) : '' }),
         s.P, s.L, s.E, s.A, s.pct ?? '', n.P, n.L, n.E, n.A, n.pct ?? '']
     })
     const csv = [head, ...rows].map((r) => r.map(q).join(',')).join('\n')
@@ -126,7 +128,7 @@ export function History({ email }: { email: string }) {
           </section>
         )}
 
-        {st.canEdit && (
+        {st.club.role === 'owner' && (
           <section className="card pad stack-12">
             <h2 className="h-label">Training days</h2>
             <p className="sub">Sessions on these days go into the training-day %. Every other day goes into the normal-day %.</p>
@@ -149,7 +151,7 @@ export function History({ email }: { email: string }) {
           </section>
         )}
 
-        {st.canEdit && <CourtCard />}
+        {st.club.role === 'owner' && <CourtCard />}
 
         {st.club.role === 'owner' && <CoachesCard />}
 
@@ -235,7 +237,16 @@ function CoachesCard() {
   return (
     <section className="card pad stack-12">
       <h2 className="h-label">Coaches</h2>
-      <p className="sub">Give the President or another coach access from their own phone. They create a Rollcall account first, then you add their email.</p>
+      <p className="sub">Give the President or another coach access from their own phone. They create a Rollcall account, you invite their email, and they accept in their app.</p>
+      {st.invites.length > 0 && (
+        <ul className="coach-list">
+          {st.invites.map((i) => (
+            <li key={i.coach}>
+              <span className="who-text"><span className="name">{i.coach_email}</span><span className="sub">{i.status === 'declined' ? 'Declined your invite' : 'Invite sent, waiting for them to accept'}</span></span>
+            </li>
+          ))}
+        </ul>
+      )}
       {st.coaches.length > 0 && (
         <ul className="coach-list">
           {st.coaches.map((c) => (
@@ -259,7 +270,7 @@ function CoachesCard() {
           <button type="button" className={`chip${role === 'editor' ? ' on' : ''}`} aria-pressed={role === 'editor'} onClick={() => setRole('editor')}>Can mark attendance</button>
           <button type="button" className={`chip${role === 'viewer' ? ' on' : ''}`} aria-pressed={role === 'viewer'} onClick={() => setRole('viewer')}>View only</button>
         </div>
-        <button type="submit" className="btn primary" disabled={busy || !email.trim()}>{busy ? 'Adding…' : 'Add coach'}</button>
+        <button type="submit" className="btn primary" disabled={busy || !email.trim()}>{busy ? 'Sending…' : 'Send invite'}</button>
       </form>
     </section>
   )

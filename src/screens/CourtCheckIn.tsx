@@ -77,7 +77,7 @@ export function CourtCheckIn({ code }: { code: string }) {
     let pos: GeolocationPosition | null = null
     if (info.needs_location) { setStep('locating'); pos = await locate() }
     setStep('sending')
-    const { data, error } = await supabase.rpc('court_checkin_v2', {
+    const { data, error } = await supabase.rpc('court_checkin_v3', {
       p_code: code, p_player: p.id, p_device: deviceId(),
       p_lat: pos?.coords.latitude ?? null, p_lng: pos?.coords.longitude ?? null, p_accuracy: pos?.coords.accuracy ?? null,
     })

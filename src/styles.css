@@ -462,3 +462,8 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
 .me-btn { min-height: 64px; font-size: 18px; }
 .needs .who-text .sub { color: var(--l-ink); opacity: .85; }
 .banner.coach { display: block; }
+
+.dot.auto { opacity: .45; }
+.invite { background: var(--navy); color: var(--on-navy); border-radius: var(--r); padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+.invite strong { color: var(--yellow); }
+.invite .btn:not(.primary) { background: transparent; color: var(--on-navy); border-color: var(--navy-line); }

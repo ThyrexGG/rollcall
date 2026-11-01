@@ -22,8 +22,8 @@ export function Player({ id }: { id: string }) {
 
   const s = st.statsFor(p.id)
   const all = st.sessions
-    .map((sess) => ({ sess, m: st.marks[sess.id]?.[p.id] }))
-    .filter((r) => r.m)
+    .map((sess) => ({ sess, m: st.effectiveMark(sess, p) }))
+    .filter((r) => r.m && !r.m.pending)
   const record = all.filter((r) => r.sess.required)
   const last = record.slice(-18)
   const recentCounted = record.filter((r) => r.m!.status !== 'E').slice(-5)
@@ -131,7 +131,7 @@ function RecordCard({ title, pct, tally, items }: { title: string; pct: number |
           <span className="sub">{items.length === 1 ? 'Latest session' : `Last ${items.length}, oldest to newest`}</span>
           <ol className="dots">
             {items.map(({ sess, m }) => (
-              <li key={sess.id} className={`dot s-${m!.status}`} title={`${fmtDay(sess.date)}: ${STATUS_LABEL[m!.status]}`}>
+              <li key={sess.id} className={`dot s-${m!.status}${m!.auto ? ' auto' : ''}`} title={`${fmtDay(sess.date)}: ${m!.auto ? 'Not checked in' : STATUS_LABEL[m!.status]}`}>
                 <span className="sr">{fmtDay(sess.date)}: {STATUS_LABEL[m!.status]}</span>
                 <span aria-hidden="true">{m!.status}</span>
               </li>

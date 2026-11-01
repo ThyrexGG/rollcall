@@ -2,9 +2,9 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { supabase } from './supabase'
 import {
   DEFAULT_TRAINING_DAYS, emptyTally, finishTally,
-  type Coach, type Court, type Mark, type Player, type Role, type Session, type Stats, type Status,
+  type Coach, type Court, type Invite, type Mark, type Player, type Role, type Session, type Stats, type Status,
 } from './types'
-import { weekday } from './dates'
+import { today as todayStr, weekday } from './dates'
 
 type Marks = Record<string, Record<string, Mark>> // sessionId (or "pending:<date>") -> playerId -> mark
 
@@ -39,6 +39,11 @@ interface Store {
   sessionFor: (date: string) => Session | undefined
   dayMarks: (date: string) => Record<string, Mark>
   statsFor: (playerId: string) => Stats
+  effectiveMark: (s: Session, p: Player) => Mark | undefined
+  isClosed: (date: string) => boolean
+  invites: Invite[]
+  myInvites: Invite[]
+  respondInvite: (owner: string, accept: boolean) => Promise<void>
   setMark: (date: string, playerId: string, status: Status | null) => void
   setNote: (date: string, playerId: string, note: string) => void
   markRest: (date: string, status?: Status) => void
@@ -121,6 +126,8 @@ export function StoreProvider({ userId, children }: { userId: string; children: 
   const [clubName, setClubNameState] = useState(cached?.clubName ?? 'Volleyball club')
   const [court, setCourt] = useState<Court>(cached?.court ?? DEFAULT_COURT)
   const [coaches, setCoaches] = useState<Coach[]>([])
+  const [invites, setInvites] = useState<Invite[]>([])
+  const [myInvites, setMyInvites] = useState<Invite[]>([])
   const [queue, setQueue] = useState<Queue>(() => readJSON<Queue>(queueKey) ?? {})
   const [toast, setToast] = useState<string | null>(null)
 
@@ -165,17 +172,23 @@ export function StoreProvider({ userId, children }: { userId: string; children: 
       const [p, s, a, cfg, co] = await Promise.all([
         supabase.from('players').select('id,name,number,position,active,created_at').eq('owner', c.owner),
         supabase.from('sessions').select(SESSION_COLS).eq('owner', c.owner).order('date'),
-        supabase.from('attendance').select('session_id,player_id,status,note,self_checked,needs_ok,distance_m,flag').eq('owner', c.owner),
+        supabase.from('attendance').select('session_id,player_id,status,note,self_checked,needs_ok,distance_m,flag,new_phone').eq('owner', c.owner),
         supabase.from('settings').select('training_days,club_name,court_code,court_lat,court_lng,court_radius_m,checkin_start,checkin_end,checkin_late').eq('owner', c.owner).maybeSingle(),
         c.role === 'owner' ? supabase.from('coaches').select('coach,coach_email,role').eq('owner', userId) : Promise.resolve({ data: [], error: null }),
       ])
+      const inv = await supabase.from('coach_invites').select('owner,coach,coach_email,club_name,role,status')
+      if (!inv.error) {
+        const rows = inv.data as Invite[]
+        setInvites(rows.filter((r) => r.owner === userId && r.status !== 'accepted'))
+        setMyInvites(c.role === 'owner' ? rows.filter((r) => r.coach === userId && r.status === 'pending') : [])
+      }
       const err = p.error || s.error || a.error || cfg.error
       if (err) throw err
       const ps = (p.data as Player[]).sort(byNumberThenName)
       const ss = s.data as Session[]
       const m: Marks = {}
-      for (const r of a.data as { session_id: string; player_id: string; status: Status; note: string | null; self_checked: boolean; needs_ok: boolean; distance_m: number | null; flag: Mark['flag'] }[]) {
-        ;(m[r.session_id] ||= {})[r.player_id] = { status: r.status, note: r.note, self: r.self_checked, pending: r.needs_ok, distance: r.distance_m, flag: r.flag }
+      for (const r of a.data as { session_id: string; player_id: string; status: Status; note: string | null; self_checked: boolean; needs_ok: boolean; distance_m: number | null; flag: Mark['flag']; new_phone: boolean }[]) {
+        ;(m[r.session_id] ||= {})[r.player_id] = { status: r.status, note: r.note, self: r.self_checked, pending: r.needs_ok, distance: r.distance_m, flag: r.flag, newPhone: r.new_phone }
       }
       const cd = cfg.data as Record<string, unknown> | null
       const ct: Court = cd ? {
@@ -523,13 +536,21 @@ export function StoreProvider({ userId, children }: { userId: string; children: 
   }, [fail, notify])
 
   const addCoach = useCallback(async (email: string, role: 'viewer' | 'editor') => {
-    const { data, error } = await supabase.rpc('add_coach', { p_email: email, p_role: role })
+    const { data, error } = await supabase.rpc('invite_coach', { p_email: email, p_role: role })
     if (error) { notify(error.message); return false }
-    const c = data as Coach
-    setCoaches((prev) => [...prev.filter((x) => x.coach !== c.coach), c])
-    notify(`${c.coach_email} added as ${role === 'editor' ? 'a coach who can mark' : 'a viewer'}`)
+    const c = data as Invite
+    setInvites((prev) => [...prev.filter((x) => x.coach !== c.coach), { ...c, owner: userId, club_name: clubName }])
+    notify(`Invite sent to ${c.coach_email}. They accept it in their Rollcall app.`)
     return true
-  }, [notify])
+  }, [notify, userId, clubName])
+
+  const respondInvite = useCallback(async (owner: string, accept: boolean) => {
+    const { error } = await supabase.rpc('respond_invite', { p_owner: owner, p_accept: accept })
+    if (error) { notify(error.message); return }
+    setMyInvites((prev) => prev.filter((i) => i.owner !== owner))
+    notify(accept ? 'You joined the club' : 'Invite declined')
+    if (accept) reload()
+  }, [notify, reload])
 
   const removeCoach = useCallback(async (coachId: string) => {
     const { error } = await supabase.from('coaches').delete().eq('owner', userId).eq('coach', coachId)
@@ -539,23 +560,60 @@ export function StoreProvider({ userId, children }: { userId: string; children: 
   }, [userId, fail, notify])
 
   // ---------- stats ----------
+  // A session is closed once its day is over (or check-in has closed today). In a closed session that really
+  // happened, a player with no mark counts as absent: training days always, normal days once 4+ came or a coach marked.
+  const isClosed = useCallback((date: string) => {
+    const t = todayStr()
+    if (date < t) return true
+    if (date > t) return false
+    const d = new Date()
+    const hhmm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+    return hhmm > court.end
+  }, [court.end])
+
+  const sessionHeld = useMemo(() => {
+    const out: Record<string, boolean> = {}
+    for (const s of sessions) {
+      const day = marks[s.id] || {}
+      const vals = Object.values(day)
+      const came = vals.filter((m) => !m.pending && (m.status === 'P' || m.status === 'L')).length
+      out[s.id] = s.required || came >= 4 || vals.some((m) => !m.self)
+    }
+    return out
+  }, [sessions, marks])
+
+  const effectiveMark = useCallback((s: Session, p: Player): Mark | undefined => {
+    const m = marks[s.id]?.[p.id]
+    if (m) return m
+    if (!sessionHeld[s.id] || !isClosed(s.date)) return undefined
+    if ((p.created_at || '').slice(0, 10) > s.date) return undefined // joined after this session
+    return { status: 'A', note: null, auto: true }
+  }, [marks, sessionHeld, isClosed])
+
   const statsCache = useMemo(() => {
     const out: Record<string, Stats> = {}
     for (const p of players) out[p.id] = { ...emptyTally(), normal: emptyTally() }
-    const req: Record<string, boolean> = {}
-    for (const s of sessions) req[s.id] = s.required
-    for (const sid of Object.keys(marks)) {
-      const required = sid.startsWith('pending:') ? trainingDays.includes(weekday(sid.slice(8))) : req[sid] ?? true
-      for (const [pid, m] of Object.entries(marks[sid])) {
-        const s = out[pid]
-        if (!s || m.pending) continue
-        if (required) s[m.status]++
-        else s.normal[m.status]++
+    for (const s of sessions) {
+      for (const p of players) {
+        const m = effectiveMark(s, p)
+        if (!m || m.pending) continue
+        if (s.required) out[p.id][m.status]++
+        else out[p.id].normal[m.status]++
+      }
+    }
+    for (const key of Object.keys(marks)) {
+      if (!key.startsWith('pending:')) continue
+      const required = trainingDays.includes(weekday(key.slice(8)))
+      for (const [pid, m] of Object.entries(marks[key])) {
+        const t = out[pid]
+        if (!t || m.pending) continue
+        if (required) t[m.status]++
+        else t.normal[m.status]++
       }
     }
     for (const s of Object.values(out)) { finishTally(s); finishTally(s.normal) }
     return out
-  }, [players, marks, sessions, trainingDays])
+  }, [players, marks, sessions, trainingDays, effectiveMark])
 
   const statsFor = useCallback(
     (id: string) => statsCache[id] ?? { ...emptyTally(), normal: emptyTally() },
@@ -570,7 +628,7 @@ export function StoreProvider({ userId, children }: { userId: string; children: 
     sessionFor, dayMarks, statsFor,
     setMark, setNote, markRest, setKind, deleteSession, openCheckin, closeCheckin,
     addPlayers, updatePlayer, deletePlayer,
-    coaches, addCoach, removeCoach,
+    coaches, addCoach, removeCoach, invites, myInvites, respondInvite, effectiveMark, isClosed,
     reload, toast, notify,
   }
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>

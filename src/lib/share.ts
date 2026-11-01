@@ -10,6 +10,7 @@ interface Src {
   dayMarks: (date: string) => Record<string, Mark>
   isRequired: (date: string) => boolean
   statsFor: (id: string) => Stats
+  effectiveMark: (s: Session, p: Player) => Mark | undefined
 }
 
 const list = (ps: Player[]) => ps.map((p) => p.name).join(', ')
@@ -33,20 +34,20 @@ export function sessionSummary(st: Src, date: string): string {
 
 /** Month report from sessions in that month (YYYY-MM). */
 export function monthReport(st: Src, month: string): string {
-  const inMonth = st.sessions.filter((s) => s.date.startsWith(month) && Object.keys(st.marks[s.id] || {}).length)
+  const inMonth = st.sessions.filter((s) => s.date.startsWith(month) && st.activePlayers.some((p) => st.effectiveMark(s, p)))
   const train = inMonth.filter((s) => s.required)
   const normal = inMonth.filter((s) => !s.required)
-  const pctFor = (sessions: Session[], pid: string) => {
+  const pctFor = (sessions: Session[], p: Player) => {
     let came = 0, counted = 0
     for (const s of sessions) {
-      const m = st.marks[s.id]?.[pid]
-      if (!m || m.status === 'E') continue
+      const m = st.effectiveMark(s, p)
+      if (!m || m.pending || m.status === 'E') continue
       counted++
       if (m.status === 'P' || m.status === 'L') came++
     }
     return counted ? Math.round((came / counted) * 100) : null
   }
-  const rows = st.activePlayers.map((p) => ({ p, t: pctFor(train, p.id), n: pctFor(normal, p.id) }))
+  const rows = st.activePlayers.map((p) => ({ p, t: pctFor(train, p), n: pctFor(normal, p) }))
   const avg = (vals: (number | null)[]) => { const v = vals.filter((x): x is number => x !== null); return v.length ? `${Math.round(v.reduce((a, b) => a + b, 0) / v.length)}%` : 'n/a' }
   const perfect = rows.filter((r) => r.t === 100).map((r) => r.p)
   const low = rows.filter((r) => r.t !== null && r.t < FOLLOW_UP).sort((a, b) => (a.t ?? 0) - (b.t ?? 0))

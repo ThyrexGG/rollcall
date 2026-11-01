@@ -27,6 +27,15 @@ export interface Session {
 
 export type Role = 'owner' | 'editor' | 'viewer'
 
+export interface Invite {
+  owner: string
+  coach: string
+  coach_email: string
+  club_name: string
+  role: 'viewer' | 'editor'
+  status: 'pending' | 'accepted' | 'declined'
+}
+
 export interface Coach {
   coach: string
   coach_email: string
@@ -44,6 +53,8 @@ export interface Mark {
   pending?: boolean // QR check-in the coach still has to confirm (no location / weak GPS)
   distance?: number | null // metres from court at check-in
   flag?: 'court_not_set' | 'no_location' | 'weak_gps' | 'different_player' | null
+  newPhone?: boolean // checked in from a phone this player never used before
+  auto?: boolean // not stored: unmarked after the session ended, counted as absent
 }
 
 /** Printed court QR settings. Times are "HH:MM". */
