@@ -455,3 +455,10 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
 .tag.wait { background: var(--l-tint); color: var(--l-ink); }
 .search { flex: none; min-height: 48px; box-sizing: border-box; }
 .toolbar .search { flex: 1 1 auto; }
+
+.banner.coach { background: var(--navy); color: var(--on-navy); border-radius: 14px; padding: 12px 14px; font-size: 14px; line-height: 1.45; }
+.banner.coach strong { color: var(--yellow); }
+.me-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 20px 18px; display: flex; flex-direction: column; align-items: stretch; gap: 12px; text-align: center; }
+.me-btn { min-height: 64px; font-size: 18px; }
+.needs .who-text .sub { color: var(--l-ink); opacity: .85; }
+.banner.coach { display: block; }

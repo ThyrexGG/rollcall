@@ -26,6 +26,7 @@ interface Store {
   saveCourt: (patch: Partial<Court>) => Promise<boolean>
   newCourtCode: () => Promise<void>
   approve: (date: string, playerId: string) => Promise<void>
+  approveAll: (date: string) => Promise<void>
   setClubName: (name: string) => Promise<void>
   players: Player[]
   activePlayers: Player[]
@@ -164,7 +165,7 @@ export function StoreProvider({ userId, children }: { userId: string; children: 
       const [p, s, a, cfg, co] = await Promise.all([
         supabase.from('players').select('id,name,number,position,active,created_at').eq('owner', c.owner),
         supabase.from('sessions').select(SESSION_COLS).eq('owner', c.owner).order('date'),
-        supabase.from('attendance').select('session_id,player_id,status,note,self_checked,needs_ok,distance_m').eq('owner', c.owner),
+        supabase.from('attendance').select('session_id,player_id,status,note,self_checked,needs_ok,distance_m,flag').eq('owner', c.owner),
         supabase.from('settings').select('training_days,club_name,court_code,court_lat,court_lng,court_radius_m,checkin_start,checkin_end,checkin_late').eq('owner', c.owner).maybeSingle(),
         c.role === 'owner' ? supabase.from('coaches').select('coach,coach_email,role').eq('owner', userId) : Promise.resolve({ data: [], error: null }),
       ])
@@ -173,8 +174,8 @@ export function StoreProvider({ userId, children }: { userId: string; children: 
       const ps = (p.data as Player[]).sort(byNumberThenName)
       const ss = s.data as Session[]
       const m: Marks = {}
-      for (const r of a.data as { session_id: string; player_id: string; status: Status; note: string | null; self_checked: boolean; needs_ok: boolean; distance_m: number | null }[]) {
-        ;(m[r.session_id] ||= {})[r.player_id] = { status: r.status, note: r.note, self: r.self_checked, pending: r.needs_ok, distance: r.distance_m }
+      for (const r of a.data as { session_id: string; player_id: string; status: Status; note: string | null; self_checked: boolean; needs_ok: boolean; distance_m: number | null; flag: Mark['flag'] }[]) {
+        ;(m[r.session_id] ||= {})[r.player_id] = { status: r.status, note: r.note, self: r.self_checked, pending: r.needs_ok, distance: r.distance_m, flag: r.flag }
       }
       const cd = cfg.data as Record<string, unknown> | null
       const ct: Court = cd ? {
@@ -479,6 +480,18 @@ export function StoreProvider({ userId, children }: { userId: string; children: 
     if (error) { fail('Approving', error); reload() }
   }, [fail, reload])
 
+  const approveAll = useCallback(async (date: string) => {
+    const s = sessionsRef.current.find((x) => x.date === date)
+    if (!s) return
+    setMarks((prev) => {
+      const d = { ...(prev[s.id] || {}) }
+      for (const k of Object.keys(d)) if (d[k].pending) d[k] = { ...d[k], pending: false }
+      return { ...prev, [s.id]: d }
+    })
+    const { error } = await supabase.from('attendance').update({ needs_ok: false }).eq('session_id', s.id).eq('needs_ok', true)
+    if (error) { fail('Approving', error); reload() } else notify('All approved')
+  }, [fail, reload, notify])
+
   const addPlayers = useCallback(async (rows: { name: string; number: string | null; position: string | null }[]) => {
     if (!rows.length) return 0
     const { data, error } = await supabase.from('players').insert(rows.map((r) => ({ ...r, owner: clubRef.current.owner }))).select('id,name,number,position,active,created_at')
@@ -551,7 +564,7 @@ export function StoreProvider({ userId, children }: { userId: string; children: 
 
   const value: Store = {
     loading, error, offline, pendingCount: Object.keys(queue).length,
-    club, canEdit, clubName, setClubName, court, saveCourt, newCourtCode, approve,
+    club, canEdit, clubName, setClubName, court, saveCourt, newCourtCode, approve, approveAll,
     players, activePlayers: players.filter((p) => p.active),
     sessions, marks, trainingDays, setTrainingDays, isRequired, setRequired,
     sessionFor, dayMarks, statsFor,

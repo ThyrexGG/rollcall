@@ -6,6 +6,13 @@ import { ConfirmButton, Icon, Jersey, Sheet } from '../components/ui'
 import { sessionSummary, shareToTelegram } from '../lib/share'
 import { go } from '../router'
 
+const FLAG_TEXT: Record<string, string> = {
+  different_player: 'Checked in from a phone that usually belongs to someone else',
+  no_location: 'Location was off or blocked',
+  weak_gps: 'GPS too weak to confirm they were at the court',
+  court_not_set: 'Court location not saved yet',
+}
+
 export function Today({ date, setDate }: { date: string; setDate: (d: string) => void }) {
   const st = useStore()
   const session = st.sessionFor(date)
@@ -115,12 +122,14 @@ export function Today({ date, setDate }: { date: string; setDate: (d: string) =>
             {!st.canEdit && <p className="banner info" role="status">You have view-only access. Ask the club owner for marking access.</p>}
             {st.canEdit && waiting.length > 0 && (
               <section className="needs" aria-label="Check-ins to confirm">
-                <h2>Needs OK · {waiting.length}</h2>
-                <p className="sub">These players scanned the court QR but their location couldn’t be checked.</p>
+                <div className="row-between">
+                  <h2>Needs OK · {waiting.length}</h2>
+                  {waiting.length > 1 && <button type="button" className="pill-btn accent" onClick={() => st.approveAll(date)}>Approve all</button>}
+                </div>
                 <ul className="stack-8">
                   {waiting.map((p) => (
                     <li key={p.id}>
-                      <span className="name">{p.name}</span>
+                      <span className="who-text"><span className="name">{p.name}</span><span className="sub">{FLAG_TEXT[day[p.id]?.flag ?? 'no_location']}</span></span>
                       <button type="button" className="pill-btn" onClick={() => st.setMark(date, p.id, null)}>Reject</button>
                       <button type="button" className="pill-btn accent" onClick={() => st.approve(date, p.id)}>Approve</button>
                     </li>

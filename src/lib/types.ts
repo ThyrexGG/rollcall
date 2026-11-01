@@ -43,6 +43,7 @@ export interface Mark {
   self?: boolean // player checked themselves in by QR
   pending?: boolean // QR check-in the coach still has to confirm (no location / weak GPS)
   distance?: number | null // metres from court at check-in
+  flag?: 'court_not_set' | 'no_location' | 'weak_gps' | 'different_player' | null
 }
 
 /** Printed court QR settings. Times are "HH:MM". */
