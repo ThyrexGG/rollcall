@@ -470,3 +470,14 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
 .logo-mark { display: inline-block; flex: none; border-radius: 22%; overflow: hidden; line-height: 0; }
 .logo-mark svg { display: block; }
 .signin-top .logo-mark { box-shadow: 0 0 0 2px rgba(245, 197, 24, .25); }
+
+/* court map picker */
+.picker-map-wrap { position: relative; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); }
+.picker-map { height: min(52dvh, 420px); width: 100%; background: #1a2a40; }
+.picker-pin { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -100%); z-index: 500; pointer-events: none; filter: drop-shadow(0 2px 3px rgba(0,0,0,.4)); line-height: 0; }
+.picker-layers { position: absolute; right: 8px; top: 8px; z-index: 500; display: flex; gap: 4px; }
+.picker-layers .chip { min-height: 32px; padding: 0 10px; font-size: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.3); }
+.picker-coords { text-align: center; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.picker-paste { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end; }
+.picker .leaflet-control-attribution { font-size: 9px; }
+.sheet:has(.picker) .sheet-in { padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }

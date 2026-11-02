@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { useStore } from '../lib/store'
 import { fmtDay, fmtMonth, fmtShort, today } from '../lib/dates'
 import { DAY_LONG, DAY_SHORT, STATUSES, type Status } from '../lib/types'
@@ -7,6 +7,7 @@ import { supabase } from '../lib/supabase'
 import { monthLabel, monthReport, monthsWithData } from '../lib/share'
 import { ShareSheet } from './Today'
 import { go } from '../router'
+const CourtMapPicker = lazy(() => import('../components/CourtMapPicker'))
 import { disablePush, enablePush, isNative, pushAvailable, pushIsOn } from '../lib/push'
 
 export function History({ email }: { email: string }) {
@@ -217,6 +218,7 @@ function CourtCard() {
   const [late, setLate] = useState(c.late ?? '')
   const [radius, setRadius] = useState(c.radius)
   const [locating, setLocating] = useState(false)
+  const [picking, setPicking] = useState(false)
   const dirty = start !== c.start || end !== c.end || (late || null) !== c.late || radius !== c.radius
 
   function saveHere() {
@@ -238,9 +240,19 @@ function CourtCard() {
         <Icon.qr />
         {c.lat ? `Court location saved · players must be within ${c.radius} m` : 'Court location not saved yet. Until it is, every check-in waits for your OK.'}
       </p>
-      <button type="button" className="btn" disabled={locating} onClick={saveHere}>
-        {locating ? 'Finding your location…' : c.lat ? 'Update court location (stand on the court)' : 'Save court location (stand on the court)'}
-      </button>
+      <div className="row-2">
+        <button type="button" className="btn primary" onClick={() => setPicking(true)}>Pick on map</button>
+        <button type="button" className="btn" disabled={locating} onClick={saveHere}>{locating ? 'Finding you…' : 'Use my location'}</button>
+      </div>
+      <p className="hint">“Use my location” only works when you’re standing on the court. “Pick on map” works from anywhere.</p>
+      <Sheet open={picking} onClose={() => setPicking(false)} title="Court location">
+        {picking && (
+          <Suspense fallback={<p className="hint center-text">Loading map…</p>}>
+            <CourtMapPicker lat={c.lat} lng={c.lng} radius={radius} onCancel={() => setPicking(false)}
+              onSave={async (lat, lng) => { if (await st.saveCourt({ lat, lng })) { st.notify('Court location saved'); setPicking(false) } }} />
+          </Suspense>
+        )}
+      </Sheet>
       <form className="stack-12" onSubmit={async (e) => {
         e.preventDefault()
         if (end <= start) { st.notify('Closing time must be after opening time'); return }
